@@ -92,9 +92,10 @@ def del_and_create_with_active_block(module, active_block, prefix='', root_modul
 
 
 def low_rank_proj(delta_theta, r):
-    U, S, Vh = torch.svd(delta_theta)
-    # print("before projection")
-    # print(f"U:{U.shape}, S:{S.shape}, Vh:{Vh.shape}")
+    original_dtype = delta_theta.dtype
+    delta_theta = delta_theta.to(torch.float32)
+    
+    U, S, Vh = torch.linalg.svd(delta_theta, full_matrices=True, driver=None)
 
     # choose first r singular value
     U = U[:, :r]
@@ -102,9 +103,10 @@ def low_rank_proj(delta_theta, r):
     U = U @ torch.diag(S)
     Vh = Vh.T[:r, :]
 
-    # print("after projection")
-    # print(f"U:{U.shape}, S:{S.shape}, Vh:{Vh.shape}")
     reconstructed = U @ Vh
     loss = F.mse_loss(delta_theta, reconstructed)
+
+    U = U.to(original_dtype)
+    Vh = Vh.to(original_dtype)
 
     return U, Vh, loss

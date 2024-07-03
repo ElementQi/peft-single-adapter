@@ -103,7 +103,7 @@ class DeltaConfig(PeftConfig):
             all have separate LoRA adapters attached to them.
     """
 
-    r: int = field(default=8, metadata={"help": "Lora attention dimension"})
+    r: int = field(default=32, metadata={"help": "Lora attention dimension"})
     target_modules: Optional[Union[list[str], str]] = field(
         default=None,
         metadata={
@@ -116,7 +116,7 @@ class DeltaConfig(PeftConfig):
             ),
         },
     )
-    delta_alpha: int = field(default=1, metadata={"help": "Lora alpha"})
+    delta_alpha: int = field(default=32, metadata={"help": "Lora alpha"})
     delta_dropout: float = field(default=0.0, metadata={"help": "Lora dropout"})
     fan_in_fan_out: bool = field(
         default=False,
@@ -145,7 +145,7 @@ class DeltaConfig(PeftConfig):
         },
     )
     init_lora_weights: bool | Literal["gaussian", "olora", "pissa", "pissa_niter_[number of iters]", "loftq"] = field(
-        default=True,
+        default=False,
         metadata={
             "help": (
                 "How to initialize the weights of the LoRA layers. Passing True (default) results in the default "
