@@ -50,7 +50,7 @@ def del_and_create_with_active_block(module, active_block, prefix='', root_modul
     Collect values returned by del_delta_create_AB and calculate their average.
     """
     verbose = True
-    save_path = "/home/ubuntu/date/mq_tst/low_rank_proj_peft_test/low_rank_matrix_saves_rank_128"
+    save_path = "/home/ubuntu/date/mq_tst/low_rank_proj_peft_test/low_rank_matrix_saves_rank_128_noTranspose"
     # Initialize root_module and collected_values on the first call
     if root_module is None:
         root_module = module
@@ -104,15 +104,23 @@ def del_and_create_with_active_block(module, active_block, prefix='', root_modul
 
 def low_rank_proj(delta_theta, r):
     original_dtype = delta_theta.dtype
+    # delta adapter: nn.Linear(1024, 2816)
+    # delta_theta shape: torch.Size([2816, 1024])
     delta_theta = delta_theta.to(torch.float32)
     
+    # U, S, Vh 's shape
+    # (torch.Size([2816, 2816]), torch.Size([1024]), torch.Size([1024, 1024]))
     U, S, Vh = torch.linalg.svd(delta_theta, full_matrices=True, driver=None)
 
     # choose first r singular value
     U = U[:, :r]
     S = S[:r]
     U = U @ torch.diag(S)
-    Vh = Vh.T[:r, :]
+    # Vh = Vh.T[:r, :]
+    Vh = Vh[:r, :]
+
+    # U, Vh's shape
+    # (torch.Size([2816, 32]), torch.Size([32, 1024]))
 
     reconstructed = U @ Vh
     loss = F.mse_loss(delta_theta, reconstructed)
@@ -120,4 +128,7 @@ def low_rank_proj(delta_theta, r):
     U = U.to(original_dtype)
     Vh = Vh.to(original_dtype)
 
-    return U, Vh, loss
+    # return U, Vh, loss
+
+    # A, B, loss
+    return Vh, U, loss

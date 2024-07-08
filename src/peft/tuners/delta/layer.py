@@ -140,7 +140,9 @@ class DeltaLayer(BaseTunerLayer):
         # start low rank proj
         # A, B, difference = low_rank_proj(self.delta_theta[adapter_name].weight.data, self.r)
         # there is a transpose
-        A, B, loss = low_rank_proj(self.delta_theta[adapter_name].weight.data.T, r)
+        # A, B, loss = low_rank_proj(self.delta_theta[adapter_name].weight.data.T, r)
+        # since `fan_in_fan_out` is `False`, we have no need to do transpose
+        A, B, loss = low_rank_proj(self.delta_theta[adapter_name].weight.data, r)
 
         # use_bias = False if self.bias == "none" else True
         use_bias = True if self.base_layer.bias is not None else False
