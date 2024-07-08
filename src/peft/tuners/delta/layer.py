@@ -112,7 +112,17 @@ class DeltaLayer(BaseTunerLayer):
         self.set_adapter(self.active_adapters)
 
     def spawn_delta_matrix(self, adapter_name):
-        if self.bias == "none":
+        use_bias = True if self.base_layer.bias is not None else False
+
+        # if self.bias == "none":
+        #     self.delta_theta[adapter_name] = nn.Linear(self.in_features, self.out_features, bias=False)
+        #     nn.init.zeros_(self.delta_theta[adapter_name].weight)
+        # else:
+        #     self.delta_theta[adapter_name] = nn.Linear(self.in_features, self.out_features, bias=True)
+        #     nn.init.zeros_(self.delta_theta[adapter_name].weight)
+        #     nn.init.zeros_(self.delta_theta[adapter_name].bias)
+
+        if use_bias == False:
             self.delta_theta[adapter_name] = nn.Linear(self.in_features, self.out_features, bias=False)
             nn.init.zeros_(self.delta_theta[adapter_name].weight)
         else:
@@ -135,8 +145,12 @@ class DeltaLayer(BaseTunerLayer):
         # use_bias = False if self.bias == "none" else True
         use_bias = True if self.base_layer.bias is not None else False
 
-        bias_data = self.delta_theta[adapter_name].bias.data
+        if use_bias:
+            bias_data = self.delta_theta[adapter_name].bias.data
+        else:
+            bias_data = None
 
+        temp_delta = self.delta_theta[adapter_name].weight.data
         # delete delta_theta
         del self.delta_theta[adapter_name]
         self.delta_theta = nn.ModuleDict({})
@@ -155,8 +169,11 @@ class DeltaLayer(BaseTunerLayer):
 
         # difference = "placeholder"
         # return difference
-        
-        return loss
+        verbose = True
+        if verbose:
+            return A, B, temp_delta, loss
+        else:
+            return loss
 
 
 

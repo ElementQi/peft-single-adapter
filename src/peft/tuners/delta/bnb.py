@@ -103,7 +103,12 @@ class Linear4bit(torch.nn.Module, DeltaLayer):
                         # output_1 = delta_A(dropout(x))
                         # output = delta_B(output_1) * scaling
 
-                        output = dropout(x) @ delta_A.weight @ delta_B.weight * scaling
+                        # TODO: make sure bias here works well
+                        use_bias = True if delta_A.bias is not None else False
+                        if use_bias:
+                            output = (dropout(x) @ delta_A.weight @ delta_B.weight + delta_A.bias)  * scaling
+                        else:
+                            output = dropout(x) @ delta_A.weight @ delta_B.weight * scaling
                         # output = delta_B(delta_A(dropout(x))) * scaling
                         # output = dropout(x) @ 
 

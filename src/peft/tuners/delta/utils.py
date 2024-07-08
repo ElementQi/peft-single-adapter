@@ -49,6 +49,8 @@ def del_and_create_with_active_block(module, active_block, prefix='', root_modul
     to the innermost layers, passing the full name of the layer.
     Collect values returned by del_delta_create_AB and calculate their average.
     """
+    verbose = True
+    save_path = "/home/ubuntu/date/mq_tst/low_rank_proj_peft_test/low_rank_matrix_saves_rank_128"
     # Initialize root_module and collected_values on the first call
     if root_module is None:
         root_module = module
@@ -65,7 +67,8 @@ def del_and_create_with_active_block(module, active_block, prefix='', root_modul
     if not has_children:
         inner_module = prefix.split(".")[-1]  # like delta_theta, delta_A
         before_module = ".".join(prefix.split(".")[:-1])
-        if (inner_module == "delta_A") or (inner_module == "delta_B"):
+        # A or B, just choose one
+        if (inner_module == "delta_A"):
             basic_index = 3
             if "base_model" in prefix:
                 basic_index += 1
@@ -79,7 +82,15 @@ def del_and_create_with_active_block(module, active_block, prefix='', root_modul
             
             # init that prefix
             if any(p in prefix for p in active_block):
-                value = the_layer.del_delta_create_AB("default")
+                if verbose:
+                    A, B, delta, value = the_layer.del_delta_create_AB("default")
+                    for n in ["A", "B", "delta"]:
+                        save_name = f"layer_{layer_num}_{attention_name}_{n}"
+                        real_save_path = f"{save_path}/{save_name}"
+                        torch.save(eval(n), real_save_path)
+
+                else:
+                    value = the_layer.del_delta_create_AB("default")
                 collected_values.append(value)
 
     # On the initial call, return the average of collected values
@@ -92,9 +103,10 @@ def del_and_create_with_active_block(module, active_block, prefix='', root_modul
 
 
 def low_rank_proj(delta_theta, r):
-    U, S, Vh = torch.svd(delta_theta)
-    # print("before projection")
-    # print(f"U:{U.shape}, S:{S.shape}, Vh:{Vh.shape}")
+    original_dtype = delta_theta.dtype
+    delta_theta = delta_theta.to(torch.float32)
+    
+    U, S, Vh = torch.linalg.svd(delta_theta, full_matrices=True, driver=None)
 
     # choose first r singular value
     U = U[:, :r]
@@ -102,9 +114,10 @@ def low_rank_proj(delta_theta, r):
     U = U @ torch.diag(S)
     Vh = Vh.T[:r, :]
 
-    # print("after projection")
-    # print(f"U:{U.shape}, S:{S.shape}, Vh:{Vh.shape}")
     reconstructed = U @ Vh
     loss = F.mse_loss(delta_theta, reconstructed)
+
+    U = U.to(original_dtype)
+    Vh = Vh.to(original_dtype)
 
     return U, Vh, loss
