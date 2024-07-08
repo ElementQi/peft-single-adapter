@@ -50,7 +50,7 @@ def del_and_create_with_active_block(module, active_block, prefix='', root_modul
     Collect values returned by del_delta_create_AB and calculate their average.
     """
     verbose = True
-    save_path = "/home/ubuntu/date/mq_tst/low_rank_proj_peft_test/low_rank_matrix_saves_rank_128_noTranspose"
+    save_path = "/home/ubuntu/date/mq_tst/low_rank_proj_peft_test/low_rank_matrix_saves_rank_128_ABS"
     # Initialize root_module and collected_values on the first call
     if root_module is None:
         root_module = module
@@ -83,8 +83,8 @@ def del_and_create_with_active_block(module, active_block, prefix='', root_modul
             # init that prefix
             if any(p in prefix for p in active_block):
                 if verbose:
-                    A, B, delta, value = the_layer.del_delta_create_AB("default")
-                    for n in ["A", "B", "delta"]:
+                    A, B, S, delta, value = the_layer.del_delta_create_AB("default")
+                    for n in ["A", "B", "S", "delta"]:
                         save_name = f"layer_{layer_num}_{attention_name}_{n}"
                         real_save_path = f"{save_path}/{save_name}"
                         torch.save(eval(n), real_save_path)
@@ -115,20 +115,19 @@ def low_rank_proj(delta_theta, r):
     # choose first r singular value
     U = U[:, :r]
     S = S[:r]
-    U = U @ torch.diag(S)
-    # Vh = Vh.T[:r, :]
     Vh = Vh[:r, :]
 
     # U, Vh's shape
     # (torch.Size([2816, 32]), torch.Size([32, 1024]))
 
-    reconstructed = U @ Vh
+    reconstructed = U @ torch.diag(S) @ Vh 
     loss = F.mse_loss(delta_theta, reconstructed)
 
     U = U.to(original_dtype)
     Vh = Vh.to(original_dtype)
+    S = S.to(original_dtype)
 
-    # return U, Vh, loss
-
-    # A, B, loss
-    return Vh, U, loss
+    # to calculate: delta_theta_tilde = U @ torch.diag(S) @ Vh 
+    # = B @ torch.diag(S) @ A
+    # A, B, S, loss
+    return Vh, U, S, loss

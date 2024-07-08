@@ -30,6 +30,7 @@ class DeltaLayer(BaseTunerLayer):
         # For Low Rank Projection
         self.delta_A = nn.ModuleDict({})
         self.delta_B = nn.ModuleDict({})
+        self.delta_S = nn.ParameterDict({})
         # For Embedding layer
         self.delta_embedding = nn.ParameterDict({})
         # Mark the weight as unmerged
@@ -114,14 +115,6 @@ class DeltaLayer(BaseTunerLayer):
     def spawn_delta_matrix(self, adapter_name):
         use_bias = True if self.base_layer.bias is not None else False
 
-        # if self.bias == "none":
-        #     self.delta_theta[adapter_name] = nn.Linear(self.in_features, self.out_features, bias=False)
-        #     nn.init.zeros_(self.delta_theta[adapter_name].weight)
-        # else:
-        #     self.delta_theta[adapter_name] = nn.Linear(self.in_features, self.out_features, bias=True)
-        #     nn.init.zeros_(self.delta_theta[adapter_name].weight)
-        #     nn.init.zeros_(self.delta_theta[adapter_name].bias)
-
         if use_bias == False:
             self.delta_theta[adapter_name] = nn.Linear(self.in_features, self.out_features, bias=False)
             nn.init.zeros_(self.delta_theta[adapter_name].weight)
@@ -133,8 +126,6 @@ class DeltaLayer(BaseTunerLayer):
 
 
     def del_delta_create_AB(self, adapter_name):
-        # print("self.delta_theta[adapter_name].weight.data")
-        # print(self.delta_theta[adapter_name].weight.data)
 
         r = self.r[adapter_name]
         # start low rank proj
@@ -142,7 +133,7 @@ class DeltaLayer(BaseTunerLayer):
         # there is a transpose
         # A, B, loss = low_rank_proj(self.delta_theta[adapter_name].weight.data.T, r)
         # since `fan_in_fan_out` is `False`, we have no need to do transpose
-        A, B, loss = low_rank_proj(self.delta_theta[adapter_name].weight.data, r)
+        A, B, S, loss = low_rank_proj(self.delta_theta[adapter_name].weight.data, r)
 
         # use_bias = False if self.bias == "none" else True
         use_bias = True if self.base_layer.bias is not None else False
@@ -158,14 +149,15 @@ class DeltaLayer(BaseTunerLayer):
         self.delta_theta = nn.ModuleDict({})
 
         # create A, B matrix on model
-        self.delta_A[adapter_name] = nn.Linear(self.in_features, r, bias=use_bias)
-        self.delta_B[adapter_name] = nn.Linear(r, self.out_features, bias=False)
+        self.delta_A[adapter_name] = nn.Linear(self.in_features, r, bias=False)
+        self.delta_B[adapter_name] = nn.Linear(r, self.out_features, bias=use_bias)
 
         self.delta_A[adapter_name].weight.data = A
         self.delta_B[adapter_name].weight.data = B
+        self.delta_S[adapter_name] = nn.Parameter(S)
 
-        if self.delta_A[adapter_name].bias is not None and bias_data is not None:
-            self.delta_A[adapter_name].bias.data = bias_data
+        if self.delta_B[adapter_name].bias is not None and bias_data is not None:
+            self.delta_B[adapter_name].bias.data = bias_data
 
         self._move_adapter_to_device_of_base_layer(adapter_name)
 
@@ -173,7 +165,7 @@ class DeltaLayer(BaseTunerLayer):
         # return difference
         verbose = True
         if verbose:
-            return A, B, temp_delta, loss
+            return A, B, S, temp_delta, loss
         else:
             return loss
 

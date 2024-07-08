@@ -74,6 +74,7 @@ class Linear4bit(torch.nn.Module, DeltaLayer):
                     else:
                         delta_A = self.delta_A[active_adapter]
                         delta_B = self.delta_B[active_adapter]
+                        delta_S = self.delta_S[active_adapter]
                         dropout = self.delta_dropout[active_adapter]
                         scaling = self.scaling[active_adapter]
 
@@ -81,43 +82,28 @@ class Linear4bit(torch.nn.Module, DeltaLayer):
                         if requires_conversion:
                             expected_dtype = result.dtype
                             x = x.to(delta_A.weight.dtype)
-                            # x = x.to(self.base_layer[active_adapter].weight.dtype)
+
+                        use_bias = True if delta_B.bias is not None else False
+
+                        # delta_tilde = B @ torch.diag(S) @ A
+                        # output = x @ delta_tilde.weight.T * scaling
+                        # U, Vh's shape = B, A's shape
+                        # (torch.Size([2816, 32]), torch.Size([32, 1024]))
+
+                        # for precision's concern, using Einstein summation convention
+                        A = delta_A.weight.T
+                        B = delta_B.weight.T
+                        S = delta_S
+                        bias = delta_B.bias
                         
-                        # print(f" x[0] shape: {x[0].shape}")
-                        # print(f" A shape: {delta_A.weight.shape}")
-                        # print(f"delta_A.in_features: {delta_A.in_features}")
-                        # print(f"delta_A.out_features: {delta_A.out_features}")
-                        # print(f"delta_A.weight: {delta_A.weight}")
-                        # print(f"delta_A.bias: {delta_A.bias}")
-
-
-                        # batch_size, seq_len, in_features = x.shape
-                        # x = x.view(batch_size * seq_len, in_features)  # [batch_size * seq_len, in_features]
-
-                        # output_1 = delta_A(dropout(x))  # [batch_size * seq_len, out_features]
-                        # output_1 = output_1.view(batch_size, seq_len, -1)  # [batch_size, seq_len, out_features]
-
-                        # # Apply delta_B
-                        # output = delta_B(output_1) * scaling
-
-                        # output_1 = delta_A(dropout(x))
-                        # output = delta_B(output_1) * scaling
-
-                        # TODO: make sure bias here works well
-                        use_bias = True if delta_A.bias is not None else False
-                        W_A = delta_A.weight.T
-                        W_B = delta_B.weight.T
+                        # x @ A @ diag(S) @ B + bias
                         if use_bias:
-                            # output = (dropout(x) @ delta_A.weight @ delta_B.weight + delta_A.bias)  * scaling
-                            output = (dropout(x) @ W_A @ W_B + delta_A.bias)  * scaling
+                            output = (x @ A @ torch.diag(S) @ B + bias) * scaling
+                            # output = (torch.einsum('ij,jk,k,kl->il', x, A, S, B) + bias) * scaling
                         else:
-                            # output = dropout(x) @ delta_A.weight @ delta_B.weight * scaling
-                            output = dropout(x) @ W_A @ W_B * scaling
-                        # output = delta_B(delta_A(dropout(x))) * scaling
-                        # output = dropout(x) @ 
+                            output = x @ A @ torch.diag(S) @ B * scaling
+                            # output = torch.einsum('ij,jk,k,kl->il', x, A, S, B) * scaling
 
-
-                        
                 else:
                     delta_theta = self.delta_theta[active_adapter]
                     dropout = self.delta_dropout[active_adapter]
