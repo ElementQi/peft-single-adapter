@@ -49,8 +49,6 @@ def del_and_create_with_active_block(module, active_block, prefix='', root_modul
     to the innermost layers, passing the full name of the layer.
     Collect values returned by del_delta_create_AB and calculate their average.
     """
-    verbose = True
-    save_path = "/home/ubuntu/date/mq_tst/low_rank_proj_peft_test/low_rank_matrix_saves_rank_128_ABS"
     # Initialize root_module and collected_values on the first call
     if root_module is None:
         root_module = module
@@ -82,15 +80,7 @@ def del_and_create_with_active_block(module, active_block, prefix='', root_modul
             
             # init that prefix
             if any(p in prefix for p in active_block):
-                if verbose:
-                    A, B, S, delta, value = the_layer.del_delta_create_AB("default")
-                    for n in ["A", "B", "S", "delta"]:
-                        save_name = f"layer_{layer_num}_{attention_name}_{n}"
-                        real_save_path = f"{save_path}/{save_name}"
-                        torch.save(eval(n), real_save_path)
-
-                else:
-                    value = the_layer.del_delta_create_AB("default")
+                value = the_layer.del_delta_create_AB("default")
                 collected_values.append(value)
 
     # On the initial call, return the average of collected values

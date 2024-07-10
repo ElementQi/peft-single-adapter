@@ -314,7 +314,6 @@ class BlockOptimizer(Optimizer):
 
         if self.global_step>=1:
             # del and create A, B
-            # avg_low_rank_projection_loss = del_and_create_with_active_block(self.model, self.active_param_prefixs)
             temp_current_block_idx = (self.current_block_idx - 1) % self.block_num
             back_prefix = self.block_prefix_list[temp_current_block_idx] + self.active_modules
             avg_low_rank_projection_loss = del_and_create_with_active_block(self.model, back_prefix)

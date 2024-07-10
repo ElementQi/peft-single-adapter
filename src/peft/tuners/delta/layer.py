@@ -143,7 +143,6 @@ class DeltaLayer(BaseTunerLayer):
         else:
             bias_data = None
 
-        temp_delta = self.delta_theta[adapter_name].weight.data
         # delete delta_theta
         del self.delta_theta[adapter_name]
         self.delta_theta = nn.ModuleDict({})
@@ -163,11 +162,8 @@ class DeltaLayer(BaseTunerLayer):
 
         # difference = "placeholder"
         # return difference
-        verbose = True
-        if verbose:
-            return A, B, S, temp_delta, loss
-        else:
-            return loss
+
+        return loss
 
 
 
