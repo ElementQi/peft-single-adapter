@@ -92,6 +92,52 @@ def del_and_create_with_active_block(module, active_block, prefix='', root_modul
             return None
 
 
+def sparse_prune_layers_with_active_block(module, active_block, prefix='', root_module=None):
+    """
+    Recursively traverse all submodules of a model and apply a specific operation
+    to the innermost layers, passing the full name of the layer.
+    """
+    # Initialize root_module on the first call
+    if root_module is None:
+        root_module = module
+
+    # Collect layers to process
+    layers_to_process = []
+
+    def collect_layers(module, active_block, prefix='', root_module=None):
+        has_children = False
+        for name, layer in module.named_children():
+            has_children = True
+            new_prefix = f"{prefix}.{name}" if prefix else name
+            collect_layers(layer, active_block, new_prefix, root_module)
+        
+        # If the module has no children, it's an innermost layer
+        if not has_children:
+            inner_module = prefix.split(".")[-1]  # like delta_theta, delta_A
+            before_module = ".".join(prefix.split(".")[:-1])
+            if inner_module == "delta_theta_pruned":
+                basic_index = 3
+                if "base_model" in prefix:
+                    basic_index += 1
+                layer_num = prefix.split(".")[basic_index]
+                # this is without the first `model` name
+                layer_prefix = ".".join(prefix.split(".")[:basic_index])
+                attention_name = ".".join(prefix.split(".")[-basic_index + 1:-1])
+
+                the_layer = eval(f"root_module.{layer_prefix}[{layer_num}].{attention_name}")
+                
+                # init that prefix
+                if any(p in prefix for p in active_block):
+                    layers_to_process.append(the_layer)
+
+    collect_layers(module, active_block, prefix, root_module)
+
+    # Process layers after collecting
+    for layer in layers_to_process:
+        layer.del_delta_create_sparse("default")
+
+
+
 def low_rank_proj(delta_theta, r):
     original_dtype = delta_theta.dtype
     # delta adapter: nn.Linear(1024, 2816)

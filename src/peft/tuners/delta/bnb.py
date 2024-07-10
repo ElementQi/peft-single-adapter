@@ -63,46 +63,31 @@ class Linear4bit(torch.nn.Module, DeltaLayer):
             result = result.clone()
 
             for active_adapter in self.active_adapters:
-                # if active_adapter not in self.lora_A.keys():
-                #     continue
 
                 # this means delta_theta is empty
-                
                 if active_adapter not in self.delta_theta.keys():
-                    if active_adapter not in self.delta_A.keys():
+                    # if len(self.delta_theta_pruned) == 0:
+                    #     continue
+                    # this means delta_theta_pruned is empty
+                    if active_adapter not in self.delta_theta_pruned.keys():
                         continue
                     else:
-                        delta_A = self.delta_A[active_adapter]
-                        delta_B = self.delta_B[active_adapter]
-                        delta_S = self.delta_S[active_adapter]
+                        delta_pruned = self.delta_theta_pruned[active_adapter]
                         dropout = self.delta_dropout[active_adapter]
                         scaling = self.scaling[active_adapter]
 
                         requires_conversion = not torch.is_autocast_enabled()
                         if requires_conversion:
                             expected_dtype = result.dtype
-                            x = x.to(delta_A.weight.dtype)
+                            x = x.to(delta_pruned.dtype)
 
-                        use_bias = True if delta_B.bias is not None else False
+                        use_bias = True if len(self.delta_theta_pruned_bias) != 0 else False
 
-                        # delta_tilde = B @ torch.diag(S) @ A
-                        # output = x @ delta_tilde.weight.T * scaling
-                        # U, Vh's shape = B, A's shape
-                        # (torch.Size([2816, 32]), torch.Size([32, 1024]))
-
-                        # for precision's concern, using Einstein summation convention
-                        A = delta_A.weight.T
-                        B = delta_B.weight.T
-                        S = delta_S
-                        bias = delta_B.bias
-                        
-                        # x @ A @ diag(S) @ B + bias
                         if use_bias:
-                            output = (x @ A @ torch.diag(S) @ B + bias) * scaling
-                            # output = (torch.einsum('ij,jk,k,kl->il', x, A, S, B) + bias) * scaling
+                            delta_pruned_bias = self.delta_theta_pruned_bias[active_adapter]
+                            output = (dropout(x) @ delta_pruned.T + delta_pruned_bias) * scaling
                         else:
-                            output = x @ A @ torch.diag(S) @ B * scaling
-                            # output = torch.einsum('ij,jk,k,kl->il', x, A, S, B) * scaling
+                            output = dropout(x) @ delta_pruned.T * scaling
 
                 else:
                     delta_theta = self.delta_theta[active_adapter]

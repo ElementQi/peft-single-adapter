@@ -27,10 +27,9 @@ class DeltaLayer(BaseTunerLayer):
         self.scaling = {}
         self.delta_dropout = nn.ModuleDict({})
         self.delta_theta = nn.ModuleDict({})
-        # For Low Rank Projection
-        self.delta_A = nn.ModuleDict({})
-        self.delta_B = nn.ModuleDict({})
-        self.delta_S = nn.ParameterDict({})
+        # For Low Rank Projection 
+        self.delta_theta_pruned = nn.ParameterDict({})
+        self.delta_theta_pruned_bias = nn.ParameterDict({})
         # For Embedding layer
         self.delta_embedding = nn.ParameterDict({})
         # Mark the weight as unmerged
@@ -122,6 +121,53 @@ class DeltaLayer(BaseTunerLayer):
             self.delta_theta[adapter_name] = nn.Linear(self.in_features, self.out_features, bias=True)
             nn.init.zeros_(self.delta_theta[adapter_name].weight)
             nn.init.zeros_(self.delta_theta[adapter_name].bias)
+        self._move_adapter_to_device_of_base_layer(adapter_name)
+
+
+    def del_delta_create_sparse(self, adapter_name):
+        """
+            1. do magnitude-pruning with percentage on delta
+            2. transform pruned delta to sparse matrix using `to_sparse`
+            3. delete delta
+            4. set `self.delta_theta_pruned` to sparse matrix
+        """
+        pruning_percentage = 0.05
+        delta_ori: nn.Parameter = self.delta_theta[adapter_name].weight
+
+        # Ensure delta is in float type for quantile computation
+        delta = delta_ori.float()
+
+
+
+        # prune delta using histogram method
+        abs_delta = delta.abs()
+        hist = torch.histc(abs_delta, bins=1000)
+        cumulative_hist = torch.cumsum(hist, dim=0)
+        total_elements = abs_delta.numel()
+        threshold_bin = torch.searchsorted(cumulative_hist, (1 - pruning_percentage) * total_elements)
+        threshold = (threshold_bin / 1000) * abs_delta.max()
+
+        # prune delta
+        # threshold = torch.quantile(delta.abs(), 1 - pruning_percentage)
+        delta[delta.abs() < threshold] = 0
+
+        # sparse matrix
+        sparse_weight = delta.to_sparse()
+        self.delta_theta_pruned[adapter_name] = nn.Parameter(sparse_weight)
+
+        # set bias (no need for pruning)
+        use_bias = True if self.base_layer.bias is not None else False
+
+        if use_bias:
+            bias_data = self.delta_theta[adapter_name].bias.data
+            self.delta_theta_pruned_bias[adapter_name] = nn.Parameter(bias_data)
+        else:
+            bias_data = None
+
+        # delete delta_theta
+        del self.delta_theta[adapter_name]
+        self.delta_theta = nn.ModuleDict({})
+
         self._move_adapter_to_device_of_base_layer(adapter_name)
 
 

@@ -9,7 +9,7 @@ import math
 import warnings
 from transformers.pytorch_utils import ALL_LAYERNORM_LAYERS
 from .layer import DeltaLayer
-from .utils import init_layers_with_active_block, del_and_create_with_active_block
+from .utils import init_layers_with_active_block, del_and_create_with_active_block, sparse_prune_layers_with_active_block
 
 
 
@@ -288,6 +288,8 @@ class BlockOptimizer(Optimizer):
                 param.requires_grad_(False)
                 param.grad = None
             else:
+                # if self.global_step >= 11:
+                #     import pdb; pdb.set_trace()
                 if self.lora_mode and "delta_theta" not in name:
                     continue
                 param.requires_grad_(True)
@@ -313,10 +315,10 @@ class BlockOptimizer(Optimizer):
         self.base_optimizer.state = defaultdict(lambda: {})
 
         if self.global_step>=1:
-            # del and create A, B
+            # del and create sparse
             temp_current_block_idx = (self.current_block_idx - 1) % self.block_num
             back_prefix = self.block_prefix_list[temp_current_block_idx] + self.active_modules
-            avg_low_rank_projection_loss = del_and_create_with_active_block(self.model, back_prefix)
+            avg_low_rank_projection_loss = sparse_prune_layers_with_active_block(self.model, back_prefix)
 
             if self.verbose >= 1:
                 print(f"After low rank projection, the projection loss is {avg_low_rank_projection_loss}")
