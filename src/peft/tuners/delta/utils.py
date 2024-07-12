@@ -167,3 +167,60 @@ def low_rank_proj(delta_theta, r):
     # = B @ torch.diag(S) @ A
     # A, B, S, loss
     return Vh, U, S, loss
+
+
+def low_rank_proj_(delta_theta, r):
+    original_dtype = delta_theta.dtype
+    # delta adapter: nn.Linear(1024, 2816)
+    # delta_theta shape: torch.Size([2816, 1024])
+    delta_theta = delta_theta.to(torch.float32)
+    
+    # U, S, Vh 's shape
+    # (torch.Size([2816, 2816]), torch.Size([1024]), torch.Size([1024, 1024]))
+    U, S, Vh = torch.linalg.svd(delta_theta, full_matrices=True, driver=None)
+
+    # choose first r singular value
+    U = U[:, :r]
+    S = S[:r]
+    Vh = Vh[:r, :]
+
+    # U, Vh's shape
+    # (torch.Size([2816, 32]), torch.Size([32, 1024]))
+
+    reconstructed = U @ torch.diag(S) @ Vh 
+    difference = delta_theta - reconstructed
+    for_loss = torch.norm(difference, 'fro') / torch.norm(delta_theta, 'fro')
+
+    U = U.to(original_dtype)
+    Vh = Vh.to(original_dtype)
+    S = S.to(original_dtype)
+
+    sparse_weight = prune_sparse(difference)
+
+    # to calculate: delta_theta_tilde = U @ torch.diag(S) @ Vh 
+    # = B @ torch.diag(S) @ A
+    # A, B, S, difference_sparse, loss
+    return Vh, U, S, sparse_weight, for_loss
+
+
+def prune_sparse(difference, pruning_percentage=0.05, bin_num=1000):
+    # delta adapter: nn.Linear(1024, 2816)
+    # delta_theta shape: torch.Size([2816, 1024])
+
+    difference_32 = difference.float()
+
+    # prune delta using histogram method
+    abs_difference = difference_32.abs()
+    hist = torch.histc(abs_difference, bins=bin_num)
+    cumulative_hist = torch.cumsum(hist, dim=0)
+    total_elements = abs_difference.numel()
+    threshold_bin = torch.searchsorted(cumulative_hist, (1 - pruning_percentage) * total_elements)
+    threshold = (threshold_bin / bin_num) * abs_difference.max()
+
+    # prune delta
+    difference_32[difference_32.abs() < threshold] = 0
+
+    # sparse matrix
+    sparse_weight = difference_32.to_sparse()
+
+    return sparse_weight

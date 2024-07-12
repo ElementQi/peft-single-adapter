@@ -12,7 +12,7 @@ from peft.tuners.tuners_utils import BaseTunerLayer, check_adapters_to_merge
 from peft.utils.integrations import dequantize_module_weight
 from peft.utils.other import transpose
 
-from .utils import low_rank_proj
+from .utils import low_rank_proj, low_rank_proj_
 
 class DeltaLayer(BaseTunerLayer):
     # All names of layers that may contain (trainable) adapter weights
@@ -27,7 +27,11 @@ class DeltaLayer(BaseTunerLayer):
         self.scaling = {}
         self.delta_dropout = nn.ModuleDict({})
         self.delta_theta = nn.ModuleDict({})
-        # For Low Rank Projection 
+        # For Low Rank Projection
+        self.delta_A = nn.ModuleDict({})
+        self.delta_B = nn.ModuleDict({})
+        self.delta_S = nn.ParameterDict({})
+        # For sparse matrix
         self.delta_theta_pruned = nn.ParameterDict({})
         self.delta_theta_pruned_bias = nn.ParameterDict({})
         # For Embedding layer
@@ -124,6 +128,58 @@ class DeltaLayer(BaseTunerLayer):
         self._move_adapter_to_device_of_base_layer(adapter_name)
 
 
+    def del_delta_create_AB_difference_sparse(self, adapter_name):
+        """
+            1. do low rank projection, get A B S
+            2. make pruned difference sparse
+        """
+        r = self.r[adapter_name]
+        # start low rank proj
+        A, B, S, sparse_weight, loss = low_rank_proj_(self.delta_theta[adapter_name].weight.data, r)
+
+        # use_bias = False if self.bias == "none" else True
+        use_bias = True if self.base_layer.bias is not None else False
+
+        if use_bias:
+            bias_data = self.delta_theta[adapter_name].bias.data
+        else:
+            bias_data = None
+
+        # delete delta_theta
+        del self.delta_theta[adapter_name]
+        self.delta_theta = nn.ModuleDict({})
+
+        # create A, B matrix on model
+        self.delta_A[adapter_name] = nn.Linear(self.in_features, r, bias=False)
+        self.delta_B[adapter_name] = nn.Linear(r, self.out_features, bias=use_bias)
+
+        self.delta_A[adapter_name].weight.data = A
+        self.delta_B[adapter_name].weight.data = B
+        self.delta_S[adapter_name] = nn.Parameter(S)
+
+
+        self.delta_theta_pruned[adapter_name] = nn.Parameter(sparse_weight)
+
+
+
+
+        if self.delta_B[adapter_name].bias is not None and bias_data is not None:
+            self.delta_B[adapter_name].bias.data = bias_data
+
+        self._move_adapter_to_device_of_base_layer(adapter_name)
+
+        # difference = "placeholder"
+        # return difference
+
+        # sparse matrix
+        sparse_weight = self.delta_S[adapter_name].to_sparse()
+        self.delta_theta_pruned[adapter_name] = nn.Parameter(sparse_weight)
+
+        return loss
+
+
+
+
     def del_delta_create_sparse(self, adapter_name):
         """
             1. do magnitude-pruning with percentage on delta
@@ -136,8 +192,6 @@ class DeltaLayer(BaseTunerLayer):
 
         # Ensure delta is in float type for quantile computation
         delta = delta_ori.float()
-
-
 
         # prune delta using histogram method
         abs_delta = delta.abs()
