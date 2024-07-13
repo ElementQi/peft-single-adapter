@@ -83,7 +83,7 @@ class Linear4bit(torch.nn.Module, DeltaLayer):
                         expected_dtype = result.dtype
                         x = x.to(data_type)
 
-                    sign_matrix = unpack_and_restore(sign_info).to(data_type)
+                    sign_matrix = unpack_and_restore(sign_info)
                     # do this needed?
                     gamma = gamma.to(data_type)
 

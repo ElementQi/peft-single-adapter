@@ -111,7 +111,8 @@ def del_delta_create_lion_like(module, active_block, prefix='', root_module=None
     if not has_children:
         inner_module = prefix.split(".")[-1]  # like delta_theta, delta_A
         before_module = ".".join(prefix.split(".")[:-1])
-        if inner_module == "delta_theta":
+        # if inner_module == "delta_theta":
+        if inner_module == "gamma":
             basic_index = 3
             if "base_model" in prefix:
                 basic_index += 1
@@ -128,6 +129,7 @@ def del_delta_create_lion_like(module, active_block, prefix='', root_module=None
             # init that prefix
             if any(p in prefix for p in active_block):
                 the_layer.del_delta_create_gamma_sign("default")
+
 
 def low_rank_proj(delta_theta, r):
     original_dtype = delta_theta.dtype
@@ -161,16 +163,17 @@ def low_rank_proj(delta_theta, r):
 
 
 def simplified_sign(tensor):
-    return torch.where(tensor < 0, torch.tensor(-1, dtype=torch.int8), torch.tensor(1, dtype=torch.int8))
+        return torch.where(tensor < 0, torch.tensor(-1, dtype=torch.int8, device=tensor.device), torch.tensor(1, dtype=torch.int8, device=tensor.device))
 
 def pack_sign(tensor):
     sign_matrix = simplified_sign(tensor)
-    bool_matrix = (sign_matrix > 0).to(torch.uint8).numpy()
+    bool_matrix = (sign_matrix > 0).to(torch.uint8).cpu().numpy()
     packed_sign_matrix = np.packbits(bool_matrix)
     stored_data = {
     'packed_sign_matrix': packed_sign_matrix,
     'original_shape': bool_matrix.shape,
-    'dtype': tensor.dtype
+    'dtype': tensor.dtype,
+    'device': tensor.device
     }
     
     return stored_data
@@ -182,6 +185,8 @@ def unpack_and_restore(stored_data):
     unpacked_bool_matrix = np.unpackbits(packed_sign_matrix)[:np.prod(original_shape)]
     unpacked_bool_matrix = torch.tensor(unpacked_bool_matrix, dtype=torch.uint8).view(original_shape)
     
+    data_type = stored_data['dtype']
+    device = stored_data['device']
     # back to -1, 1
-    unpacked_sign_matrix = torch.where(unpacked_bool_matrix == 1, torch.tensor(1), torch.tensor(-1))
+    unpacked_sign_matrix = torch.where(unpacked_bool_matrix == 1, torch.tensor(1), torch.tensor(-1)).to(data_type).to(device)
     return unpacked_sign_matrix

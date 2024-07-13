@@ -173,6 +173,7 @@ class DeltaLayer(BaseTunerLayer):
 
     # Lion-like algorithm
     def del_delta_create_gamma_sign(self, adapter_name):
+        # print("del_delta_create_gamma_sign")
         delta = self.delta_theta[adapter_name].weight.data
         quantized_theta_0_param: Params4bit = self.base_layer.weight
         quantized_theta_0 = dequantize_bnb_weight(quantized_theta_0_param)
