@@ -9,10 +9,12 @@ from torch import svd_lowrank
 from transformers.pytorch_utils import Conv1D
 
 from peft.tuners.tuners_utils import BaseTunerLayer, check_adapters_to_merge
-from peft.utils.integrations import dequantize_module_weight
+from peft.utils.integrations import dequantize_module_weight, dequantize_bnb_weight
 from peft.utils.other import transpose
 
-from .utils import low_rank_proj
+from .utils import low_rank_proj, pack_sign
+
+from bitsandbytes.nn import Params4bit
 
 class DeltaLayer(BaseTunerLayer):
     # All names of layers that may contain (trainable) adapter weights
@@ -31,6 +33,9 @@ class DeltaLayer(BaseTunerLayer):
         self.delta_A = nn.ModuleDict({})
         self.delta_B = nn.ModuleDict({})
         self.delta_S = nn.ParameterDict({})
+        # for sign info and gamma -> Lion algorithm
+        self.sign_info = nn.ParameterDict({})
+        self.gamma = nn.ParameterDict({})
         # For Embedding layer
         self.delta_embedding = nn.ParameterDict({})
         # Mark the weight as unmerged
@@ -165,6 +170,23 @@ class DeltaLayer(BaseTunerLayer):
 
         return loss
 
+
+    # Lion-like algorithm
+    def del_delta_create_gamma_sign(self, adapter_name):
+        delta = self.delta_theta[adapter_name].weight.data
+        quantized_theta_0_param: Params4bit = self.base_layer.weight
+        quantized_theta_0 = dequantize_bnb_weight(quantized_theta_0_param)
+    
+        # change to float32, otherwise the norm will be nan
+        gamma = torch.norm(delta.float(), p=1) / torch.norm(quantized_theta_0.float(), p=1)
+        sign_info = pack_sign(delta)
+        
+        self.gamma[adapter_name] = gamma
+        self.sign_info[adapter_name] = sign_info
+
+        # delete delta_theta
+        del self.delta_theta[adapter_name]
+        self.delta_theta = nn.ModuleDict({})
 
 
     def reset_lora_parameters(self, adapter_name, init_lora_weights):

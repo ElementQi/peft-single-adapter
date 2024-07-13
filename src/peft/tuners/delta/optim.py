@@ -9,7 +9,7 @@ import math
 import warnings
 from transformers.pytorch_utils import ALL_LAYERNORM_LAYERS
 from .layer import DeltaLayer
-from .utils import init_layers_with_active_block, del_and_create_with_active_block
+from .utils import init_layers_with_active_block, del_and_create_with_active_block, del_delta_create_lion_like
 
 
 
@@ -316,7 +316,7 @@ class BlockOptimizer(Optimizer):
             # del and create A, B
             temp_current_block_idx = (self.current_block_idx - 1) % self.block_num
             back_prefix = self.block_prefix_list[temp_current_block_idx] + self.active_modules
-            avg_low_rank_projection_loss = del_and_create_with_active_block(self.model, back_prefix)
+            avg_low_rank_projection_loss = del_delta_create_lion_like(self.model, back_prefix)
 
             if self.verbose >= 1:
                 print(f"After low rank projection, the projection loss is {avg_low_rank_projection_loss}")

@@ -10,122 +10,107 @@ from peft.utils.integrations import dequantize_bnb_weight
 from peft.utils.other import transpose
 
 from .layer import DeltaLayer
-
+from .utils import unpack_and_restore
 
 class Linear4bit(torch.nn.Module, DeltaLayer):
-        # Lora implemented in a dense layer
-        def __init__(
-            self,
-            base_layer: torch.nn.Module,
-            adapter_name: str,
-            r: int = 0,
-            delta_alpha: int = 1,
-            delta_dropout: float = 0.0,
-            init_lora_weights: bool = True,
-            use_rslora: bool = False,
-            **kwargs,
-        ) -> None:
-            super().__init__()
-            DeltaLayer.__init__(self, base_layer)
-            self.fan_in_fan_out = False
+    # Lora implemented in a dense layer
+    def __init__(
+        self,
+        base_layer: torch.nn.Module,
+        adapter_name: str,
+        r: int = 0,
+        delta_alpha: int = 1,
+        delta_dropout: float = 0.0,
+        init_lora_weights: bool = True,
+        use_rslora: bool = False,
+        **kwargs,
+    ) -> None:
+        super().__init__()
+        DeltaLayer.__init__(self, base_layer)
+        self.fan_in_fan_out = False
 
-            self._active_adapter = adapter_name
-            self.update_layer(
-                adapter_name,
-                r,
-                delta_alpha=delta_alpha,
-                delta_dropout=delta_dropout,
-                init_lora_weights=init_lora_weights,
-                use_rslora=use_rslora,
+        self._active_adapter = adapter_name
+        self.update_layer(
+            adapter_name,
+            r,
+            delta_alpha=delta_alpha,
+            delta_dropout=delta_dropout,
+            init_lora_weights=init_lora_weights,
+            use_rslora=use_rslora,
+        )
+
+
+    def get_delta_weight(self, adapter):
+        return (
+            transpose(
+                self.delta_theta[adapter].weight,
+                False,
             )
+            * self.scaling[adapter]
+        )
 
 
-        def get_delta_weight(self, adapter):
-            return (
-                transpose(
-                    self.delta_theta[adapter].weight,
-                    False,
-                )
-                * self.scaling[adapter]
-            )
+    def forward(self, x: torch.Tensor, *args, **kwargs) -> torch.Tensor:
+        # self._check_forward_args(x, *args, **kwargs)
+        adapter_names = kwargs.pop("adapter_names", None)
 
+        result = self.base_layer(x, *args, **kwargs)
+        # As per Tim Dettmers, for 4bit, we need to defensively clone here.
+        # The reason is that in some cases, an error can occur that backprop
+        # does not work on a manipulated view. This issue may be solved with
+        # newer PyTorch versions but this would need extensive testing to be
+        # sure.
+        result = result.clone()
 
-        def forward(self, x: torch.Tensor, *args, **kwargs) -> torch.Tensor:
-            # self._check_forward_args(x, *args, **kwargs)
-            adapter_names = kwargs.pop("adapter_names", None)
+        for active_adapter in self.active_adapters:
+            # if active_adapter not in self.lora_A.keys():
+            #     continue
 
-            result = self.base_layer(x, *args, **kwargs)
-            # As per Tim Dettmers, for 4bit, we need to defensively clone here.
-            # The reason is that in some cases, an error can occur that backprop
-            # does not work on a manipulated view. This issue may be solved with
-            # newer PyTorch versions but this would need extensive testing to be
-            # sure.
-            result = result.clone()
-
-            for active_adapter in self.active_adapters:
-                # if active_adapter not in self.lora_A.keys():
-                #     continue
-
-                # this means delta_theta is empty
-                
-                if active_adapter not in self.delta_theta.keys():
-                    if active_adapter not in self.delta_A.keys():
-                        continue
-                    else:
-                        delta_A = self.delta_A[active_adapter]
-                        delta_B = self.delta_B[active_adapter]
-                        delta_S = self.delta_S[active_adapter]
-                        dropout = self.delta_dropout[active_adapter]
-                        scaling = self.scaling[active_adapter]
-
-                        requires_conversion = not torch.is_autocast_enabled()
-                        if requires_conversion:
-                            expected_dtype = result.dtype
-                            x = x.to(delta_A.weight.dtype)
-
-                        use_bias = True if delta_B.bias is not None else False
-
-                        # delta_tilde = B @ torch.diag(S) @ A
-                        # output = x @ delta_tilde.weight.T * scaling
-                        # U, Vh's shape = B, A's shape
-                        # (torch.Size([2816, 32]), torch.Size([32, 1024]))
-
-                        # for precision's concern, using Einstein summation convention
-                        A = delta_A.weight.T
-                        B = delta_B.weight.T
-                        S = delta_S
-                        bias = delta_B.bias
-                        
-                        # x @ A @ diag(S) @ B + bias
-                        if use_bias:
-                            output = (x @ A @ torch.diag(S) @ B + bias) * scaling
-                            # output = (torch.einsum('ij,jk,k,kl->il', x, A, S, B) + bias) * scaling
-                        else:
-                            output = x @ A @ torch.diag(S) @ B * scaling
-                            # output = torch.einsum('ij,jk,k,kl->il', x, A, S, B) * scaling
-
+            # this means delta_theta is empty
+            
+            if active_adapter not in self.delta_theta.keys():
+                if active_adapter not in self.gamma.keys():
+                    continue
                 else:
-                    delta_theta = self.delta_theta[active_adapter]
+                    gamma = self.gamma[active_adapter]
+                    sign_info = self.sign_info[active_adapter]
                     dropout = self.delta_dropout[active_adapter]
                     scaling = self.scaling[active_adapter]
+                    data_type = sign_info["dtype"]
 
                     requires_conversion = not torch.is_autocast_enabled()
                     if requires_conversion:
                         expected_dtype = result.dtype
-                        x = x.to(delta_theta.weight.dtype)
+                        x = x.to(data_type)
 
-                    output = delta_theta(dropout(x)) * scaling
-                        
+                    sign_matrix = unpack_and_restore(sign_info).to(data_type)
+                    # do this needed?
+                    gamma = gamma.to(data_type)
+
+                    output = dropout(x) @ sign_matrix.T * gamma * scaling
+
+            else:
+                delta_theta = self.delta_theta[active_adapter]
+                dropout = self.delta_dropout[active_adapter]
+                scaling = self.scaling[active_adapter]
+
+                requires_conversion = not torch.is_autocast_enabled()
                 if requires_conversion:
-                    output = output.to(expected_dtype)
+                    expected_dtype = result.dtype
+                    x = x.to(delta_theta.weight.dtype)
 
-                result = result + output
+                output = delta_theta(dropout(x)) * scaling
+                    
+            if requires_conversion:
+                output = output.to(expected_dtype)
 
-            return result
+            result = result + output
 
-        def __repr__(self) -> str:
-            rep = super().__repr__()
-            return "delta." + rep
+        return result
+
+    def __repr__(self) -> str:
+        rep = super().__repr__()
+        return "delta." + rep
 
 def dispatch_bnb_4bit(target: torch.nn.Module, adapter_name: str, **kwargs):
     new_module = None
