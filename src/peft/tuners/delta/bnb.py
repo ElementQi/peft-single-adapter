@@ -76,18 +76,24 @@ class Linear4bit(torch.nn.Module, DeltaLayer):
                     sign_info = self.sign_info[active_adapter]
                     dropout = self.delta_dropout[active_adapter]
                     scaling = self.scaling[active_adapter]
-                    data_type = sign_info["dtype"]
+                    data_type = sign_info["original_dtype"]
+
+                    lion_scaler = 1e-2
 
                     requires_conversion = not torch.is_autocast_enabled()
                     if requires_conversion:
+                        # TODO we should all use this kind of dtype
                         expected_dtype = result.dtype
                         x = x.to(data_type)
 
+                    # already retyped
                     sign_matrix = unpack_and_restore(sign_info)
-                    # do this needed?
-                    gamma = gamma.to(data_type)
+                    # do this needed? gamma generated from norm is float32
+                    if type(gamma) != float:
+                        gamma = gamma.to(data_type)
 
-                    output = dropout(x) @ sign_matrix.T * gamma * scaling
+                    output = dropout(x) @ sign_matrix.T * gamma * scaling * lion_scaler
+                    # import pdb; pdb.set_trace()
 
             else:
                 delta_theta = self.delta_theta[active_adapter]

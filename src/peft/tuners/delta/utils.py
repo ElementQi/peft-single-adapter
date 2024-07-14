@@ -1,7 +1,6 @@
 import torch.nn as nn
 import torch
 import torch.nn.functional as F
-import numpy as np
 
 
 def init_layers_with_active_block(module, active_block, prefix='', root_module=None):
@@ -163,30 +162,50 @@ def low_rank_proj(delta_theta, r):
 
 
 def simplified_sign(tensor):
-        return torch.where(tensor < 0, torch.tensor(-1, dtype=torch.int8, device=tensor.device), torch.tensor(1, dtype=torch.int8, device=tensor.device))
+    return torch.where(tensor < 0, torch.tensor(-1, dtype=torch.int8, device=tensor.device), torch.tensor(1, dtype=torch.int8, device=tensor.device))
 
-def pack_sign(tensor):
-    sign_matrix = simplified_sign(tensor)
-    bool_matrix = (sign_matrix > 0).to(torch.uint8).cpu().numpy()
-    packed_sign_matrix = np.packbits(bool_matrix)
+def pack_sign(tensor: torch.tensor) -> dict:
+    """
+    :return: a dictionary containing the packed sign matrix, the original shape of the tensor, and the original dtype of the tensor
+    """
+    values_tensor = simplified_sign(tensor)
+
+    # Convert -1 to 0 for bit-packing
+    values_tensor = torch.where(values_tensor == 1, torch.tensor(1, device=values_tensor.device, dtype=torch.uint8), torch.tensor(0, device=values_tensor.device, dtype=torch.uint8))
+
+    # Flatten the values tensor for bit packing
+    flat_values = values_tensor.view(-1)
+    num_values = flat_values.numel()
+    padded_size = (num_values + 7) // 8 * 8  # Ensure a multiple of 8
+    padded_values = torch.cat((flat_values, torch.zeros(padded_size - num_values, device=values_tensor.device, dtype=torch.uint8)))
+
+    # Reshape to group bits for packing
+    reshaped_values = padded_values.view(-1, 8)
+
+    # Pack bits into uint8 tensor
+    packed_tensor = torch.sum(reshaped_values * (2 ** torch.arange(8, device=values_tensor.device, dtype=torch.uint8)), dim=1, dtype=torch.uint8)
+    
     stored_data = {
-    'packed_sign_matrix': packed_sign_matrix,
-    'original_shape': bool_matrix.shape,
-    'dtype': tensor.dtype,
-    'device': tensor.device
+    'packed_sign_matrix': packed_tensor,
+    'original_shape': values_tensor.shape,
+    'original_dtype': tensor.dtype
     }
     
     return stored_data
 
 def unpack_and_restore(stored_data):
-    packed_sign_matrix = stored_data['packed_sign_matrix']
+    packed_tensor = stored_data['packed_sign_matrix']
     original_shape = stored_data['original_shape']
+    original_dtype = stored_data['original_dtype']
+    # Create a tensor with powers of two for bit unpacking
+    powers_of_two = 2 ** torch.arange(8, device=packed_tensor.device, dtype=torch.uint8).view(1, -1)
     
-    unpacked_bool_matrix = np.unpackbits(packed_sign_matrix)[:np.prod(original_shape)]
-    unpacked_bool_matrix = torch.tensor(unpacked_bool_matrix, dtype=torch.uint8).view(original_shape)
-    
-    data_type = stored_data['dtype']
-    device = stored_data['device']
-    # back to -1, 1
-    unpacked_sign_matrix = torch.where(unpacked_bool_matrix == 1, torch.tensor(1), torch.tensor(-1)).to(data_type).to(device)
-    return unpacked_sign_matrix
+    # Unpack bits
+    unpacked_bits = ((packed_tensor.view(-1, 1) & powers_of_two) > 0).byte()
+
+    # Flatten and slice to original size
+    unpacked_bits = unpacked_bits.view(-1)[:original_shape[0] * original_shape[1]]
+    unpacked_values = torch.where(unpacked_bits == 1, torch.tensor(1, device=packed_tensor.device, dtype=original_dtype), torch.tensor(-1, device=packed_tensor.device, dtype=original_dtype))
+
+    # Reshape to the original shape
+    return unpacked_values.view(original_shape)

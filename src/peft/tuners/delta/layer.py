@@ -180,6 +180,8 @@ class DeltaLayer(BaseTunerLayer):
     
         # change to float32, otherwise the norm will be nan
         gamma = torch.norm(delta.float(), p=1) / torch.norm(quantized_theta_0.float(), p=1)
+        # gamma = 1e-5
+
         sign_info = pack_sign(delta)
         
         self.gamma[adapter_name] = gamma
@@ -188,6 +190,8 @@ class DeltaLayer(BaseTunerLayer):
         # delete delta_theta
         del self.delta_theta[adapter_name]
         self.delta_theta = nn.ModuleDict({})
+
+        print(f"gamma: {gamma}")
 
 
     def reset_lora_parameters(self, adapter_name, init_lora_weights):
