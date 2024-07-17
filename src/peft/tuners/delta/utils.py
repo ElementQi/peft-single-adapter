@@ -127,7 +127,11 @@ def del_delta_create_lion_like(module, active_block, prefix='', root_module=None
             
             # init that prefix
             if any(p in prefix for p in active_block):
-                the_layer.del_delta_create_gamma_sign("default")
+                gamma = the_layer.del_delta_create_gamma_sign("default")
+                file_name = "llama3_delta_lion_K50_gc16_val1k_real1e2_nohup"
+                prefix_folder = "/home/ubuntu/date/test-ckpts"
+                with open(f"{prefix_folder}/{file_name}/gamma", "a") as f:
+                    f.write(f"{layer_prefix}[{layer_num}].{attention_name}: {gamma}\n")
 
 
 def low_rank_proj(delta_theta, r):
