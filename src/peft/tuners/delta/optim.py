@@ -314,17 +314,6 @@ class BlockOptimizer(Optimizer):
         # Clean the optimizer state
         self.base_optimizer.state = defaultdict(lambda: {})
 
-        if self.global_step>=1:
-            # del and create A, B
-            temp_current_block_idx = (self.current_block_idx - 1) % self.block_num
-            back_prefix = self.block_prefix_list[temp_current_block_idx] + self.active_modules
-            avg_low_rank_projection_loss = del_delta_create_lion_like(self.model, back_prefix)
-
-            if self.verbose >= 1:
-                print(f"After low rank projection, the projection loss is {avg_low_rank_projection_loss}")
-                
-            # don't forget to update `self.named_parameters_list`
-            self.named_parameters_list = list(self.model.named_parameters())
 
         self._update_active_block()
 
