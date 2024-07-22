@@ -194,6 +194,48 @@ class DeltaLayer(BaseTunerLayer):
         print(f"gamma: {gamma}")
 
 
+    def del_delta_create_column_gamma_sign(self, adapter_name):
+        # print("del_delta_create_gamma_sign")
+        delta = self.delta_theta[adapter_name].weight.data
+    
+        # change to float32, otherwise the norm will be nan
+        # We assume Delta has the shape [m, n] where m is the number of rows and n is the number of columns
+        gamma = torch.norm(delta.float(), dim=0) / torch.norm(torch.sign(delta).float(), dim=0)
+        # Ensure gamma has the right shape for broadcasting
+        gamma = gamma.view(1, -1)  # Reshape gamma to [1, n] for broadcasting
+
+        sign_info = pack_sign(delta)
+        
+        self.gamma[adapter_name] = gamma
+        self.sign_info[adapter_name] = sign_info
+
+        # delete delta_theta
+        del self.delta_theta[adapter_name]
+        self.delta_theta = nn.ModuleDict({})
+
+        print(f"gamma: {gamma}")
+
+    def del_delta_create_row_gamma_sign(self, adapter_name):
+        # print("del_delta_create_gamma_sign")
+        delta = self.delta_theta[adapter_name].weight.data
+    
+        # change to float32, otherwise the norm will be nan
+        gamma = torch.norm(delta.float(), dim=1) / torch.norm(torch.sign(delta).float(), dim=1)
+        # Ensure gamma has the right shape for broadcasting
+        gamma = gamma.view(-1, 1)  # Reshape gamma to [m, 1] for broadcasting
+
+        sign_info = pack_sign(delta)
+        
+        self.gamma[adapter_name] = gamma
+        self.sign_info[adapter_name] = sign_info
+
+        # delete delta_theta
+        del self.delta_theta[adapter_name]
+        self.delta_theta = nn.ModuleDict({})
+
+        print(f"gamma: {gamma}")
+        
+
     def reset_lora_parameters(self, adapter_name, init_lora_weights):
         if init_lora_weights is False:
             return 

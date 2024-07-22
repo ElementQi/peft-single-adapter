@@ -92,7 +92,7 @@ class Linear4bit(torch.nn.Module, DeltaLayer):
                     if type(gamma) != float:
                         gamma = gamma.to(data_type)
 
-                    output = dropout(x) @ sign_matrix.T * gamma * scaling * lion_scaler
+                    output = dropout(x) @ (sign_matrix * gamma).T * scaling * lion_scaler
                     # import pdb; pdb.set_trace()
 
             else:
