@@ -67,16 +67,27 @@ class Linear4bit(torch.nn.Module, DeltaLayer):
             #     continue
 
             # this means delta_theta is empty
-            
+
             if active_adapter not in self.delta_theta.keys():
-                if active_adapter not in self.gamma.keys():
+                # now we change the init value of `self.sign_gamma` do have 'default' key
+                # and that key's value is set default to None -> then the bool 0
+
+                # if self.sign_gamma[active_adapter] == False:  # noqa: E712
+                if self.sign_gamma[active_adapter] == 0:
+                    # this branch means the gamma has not been generated
+                # if active_adapter not in self.sign_gamma.keys():
                     continue
                 else:
-                    gamma = self.gamma[active_adapter]
-                    sign_info = self.sign_info[active_adapter]
+                    gamma = self.sign_gamma[active_adapter]
+                    # sign_info = self.sign_info[active_adapter]
+
+                    packed_sign_matrix = self.packed_sign_matrix[active_adapter]
+                    sign_original_shape = self.sign_original_shape[active_adapter]
+
                     dropout = self.delta_dropout[active_adapter]
                     scaling = self.scaling[active_adapter]
-                    data_type = sign_info["original_dtype"]
+                    data_type = torch.float16
+                    # data_type = sign_info["original_dtype"]
 
                     lion_scaler = 1e-2
 
@@ -87,9 +98,9 @@ class Linear4bit(torch.nn.Module, DeltaLayer):
                         x = x.to(data_type)
 
                     # already retyped
-                    sign_matrix = unpack_and_restore(sign_info)
+                    sign_matrix = unpack_and_restore(packed_sign_matrix, sign_original_shape)
                     # do this needed? gamma generated from norm is float32
-                    if type(gamma) != float:
+                    if not isinstance(gamma, float):
                         gamma = gamma.to(data_type)
 
                     output = dropout(x) @ sign_matrix.T * gamma * scaling * lion_scaler
@@ -106,7 +117,7 @@ class Linear4bit(torch.nn.Module, DeltaLayer):
                     x = x.to(delta_theta.weight.dtype)
 
                 output = delta_theta(dropout(x)) * scaling
-                    
+
             if requires_conversion:
                 output = output.to(expected_dtype)
 

@@ -177,6 +177,9 @@ def get_peft_model_state_dict(
             to_return["base_model.vera_A." + adapter_name] = state_dict["base_model.vera_A." + adapter_name]
             to_return["base_model.vera_B." + adapter_name] = state_dict["base_model.vera_B." + adapter_name]
 
+    elif config.peft_type == PeftType.DELTA:
+        to_return = {k: state_dict[k] for k in state_dict if "sign" in k}
+
     else:
         raise ValueError(f"Unknown PEFT type passed: {config.peft_type}")
 
@@ -314,6 +317,7 @@ def set_peft_model_state_dict(
         PeftType.LN_TUNING,
         PeftType.BOFT,
         PeftType.VERA,
+        PeftType.DELTA,
     ):
         peft_model_state_dict = {}
         parameter_prefix = {
@@ -327,6 +331,7 @@ def set_peft_model_state_dict(
             PeftType.BOFT: "boft_",
             PeftType.LN_TUNING: "ln_tuning_",
             PeftType.VERA: "vera_lambda_",
+            PeftType.DELTA: "sign_",
         }[config.peft_type]
         for k, v in state_dict.items():
             if parameter_prefix in k:
@@ -381,7 +386,12 @@ def set_peft_model_state_dict(
     peft_model_state_dict, mismatched_keys = _find_mismatched_keys(
         model, peft_model_state_dict, ignore_mismatched_sizes=ignore_mismatched_sizes
     )
-    load_result = model.load_state_dict(peft_model_state_dict, strict=False)
+
+    if config.peft_type == PeftType.DELTA:
+        load_result = model.load_state_dict(peft_model_state_dict, strict=False, assign=True)
+    else:
+        load_result = model.load_state_dict(peft_model_state_dict, strict=False)
+
     if config.is_prompt_learning:
         model.prompt_encoder[adapter_name].embedding.load_state_dict(
             {"weight": peft_model_state_dict["prompt_embeddings"]}, strict=True

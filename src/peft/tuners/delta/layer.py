@@ -34,8 +34,10 @@ class DeltaLayer(BaseTunerLayer):
         self.delta_B = nn.ModuleDict({})
         self.delta_S = nn.ParameterDict({})
         # for sign info and gamma -> Lion algorithm
-        self.sign_info = nn.ParameterDict({})
-        self.gamma = nn.ParameterDict({})
+        # self.sign_info = nn.ParameterDict({})
+        self.packed_sign_matrix = nn.ParameterDict({})
+        self.sign_original_shape = nn.ParameterDict({})
+        self.sign_gamma = nn.ParameterDict({})
         # For Embedding layer
         self.delta_embedding = nn.ParameterDict({})
         # Mark the weight as unmerged
@@ -103,6 +105,16 @@ class DeltaLayer(BaseTunerLayer):
         if init_lora_weights:
             self.delta_theta[adapter_name] = nn.Linear(self.in_features, self.out_features, bias=True)
 
+        # init the saving and loading adapters for detecting `state_dict`:
+
+        # Flatten the values tensor for bit packing
+        flat_values = self.base_layer.weight.data.view(-1)
+        num_values = flat_values.numel()
+        packed_size = (num_values + 7) // 8 # Ensure a multiple of 8
+
+        self.packed_sign_matrix[adapter_name] = nn.Parameter(torch.zeros(packed_size*4, dtype=torch.bool), requires_grad=False)
+        self.sign_original_shape[adapter_name] = nn.Parameter(torch.zeros(2, dtype=torch.bool), requires_grad=False)
+        self.sign_gamma[adapter_name] = nn.Parameter(torch.tensor(0, dtype=torch.bool), requires_grad=False)
 
         if use_rslora:
             self.scaling[adapter_name] = delta_alpha / math.sqrt(r)
@@ -177,19 +189,22 @@ class DeltaLayer(BaseTunerLayer):
         delta = self.delta_theta[adapter_name].weight.data
         quantized_theta_0_param: Params4bit = self.base_layer.weight
         quantized_theta_0 = dequantize_bnb_weight(quantized_theta_0_param)
-    
+
         # change to float32, otherwise the norm will be nan
         gamma = torch.norm(delta.float(), p=1) / torch.norm(quantized_theta_0.float(), p=1)
-        # gamma = 1e-5
 
-        sign_info = pack_sign(delta)
-        
-        self.gamma[adapter_name] = gamma
-        self.sign_info[adapter_name] = sign_info
+        packed_sign_tensor, shape_tensor = pack_sign(delta)
+
+        # save the core info related to sign matrices
+        self.packed_sign_matrix[adapter_name] = nn.Parameter(packed_sign_tensor, requires_grad=False)
+        self.sign_original_shape[adapter_name] = nn.Parameter(shape_tensor, requires_grad=False)
+        self.sign_gamma[adapter_name] = nn.Parameter(gamma, requires_grad=False)
 
         # delete delta_theta
         del self.delta_theta[adapter_name]
         self.delta_theta = nn.ModuleDict({})
+
+        self._move_adapter_to_device_of_base_layer(adapter_name)
 
         print(f"gamma: {gamma}")
 
