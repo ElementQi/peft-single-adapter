@@ -112,11 +112,33 @@ class Linear4bit(torch.nn.Module, DeltaLayer):
                 scaling = self.scaling[active_adapter]
 
                 requires_conversion = not torch.is_autocast_enabled()
-                if requires_conversion:
-                    expected_dtype = result.dtype
-                    x = x.to(delta_theta.weight.dtype)
+                if self.sign_gamma[active_adapter] == 0:
+                    if requires_conversion:
+                        expected_dtype = result.dtype
+                        x = x.to(delta_theta.weight.dtype)
 
-                output = delta_theta(dropout(x)) * scaling
+                    output = delta_theta(dropout(x)) * scaling
+
+
+                else:
+                    data_type = torch.float16
+                    lion_scaler = 1e-2
+                    requires_conversion = True
+
+                    # lion_scaler = torch.tensor(1e-2, dtype=torch.float16, device=delta_theta.weight.data.device)
+                    gamma = self.sign_gamma[active_adapter]
+                    packed_sign_matrix = self.packed_sign_matrix[active_adapter]
+                    sign_original_shape = self.sign_original_shape[active_adapter]
+
+                    sign_matrix = unpack_and_restore(packed_sign_matrix, sign_original_shape)
+
+                    if requires_conversion:
+                        expected_dtype = result.dtype
+                        x = x.to(delta_theta.weight.dtype)
+                        sign_matrix = sign_matrix.to(delta_theta.weight.dtype)
+                        gamma = gamma.to(delta_theta.weight.dtype)
+
+                    output = (delta_theta(dropout(x)) + dropout(x) @ sign_matrix.T * gamma * lion_scaler) * scaling
 
             if requires_conversion:
                 output = output.to(expected_dtype)

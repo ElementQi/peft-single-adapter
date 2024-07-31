@@ -15,6 +15,7 @@ from peft.utils.other import transpose
 from .utils import low_rank_proj, pack_sign
 
 from bitsandbytes.nn import Params4bit
+from .utils import unpack_and_restore
 
 class DeltaLayer(BaseTunerLayer):
     # All names of layers that may contain (trainable) adapter weights
@@ -187,6 +188,17 @@ class DeltaLayer(BaseTunerLayer):
     def del_delta_create_gamma_sign(self, adapter_name):
         # print("del_delta_create_gamma_sign")
         delta = self.delta_theta[adapter_name].weight.data
+
+        # this means gamma exists, and the sign matrix is already created
+        # therefore we are in the next data epoch
+        if self.sign_gamma[adapter_name] != 0:
+
+            lion_scaler = 1e-2
+            sign_matrix = unpack_and_restore(self.packed_sign_matrix[adapter_name], self.sign_original_shape[adapter_name])
+            delta = delta + lion_scaler * self.sign_gamma[adapter_name] * sign_matrix * self.scaling[adapter_name]
+            # breakpoint()
+            # TODO should we del sign_matrix and other temp tensors?
+
         quantized_theta_0_param: Params4bit = self.base_layer.weight
         quantized_theta_0 = dequantize_bnb_weight(quantized_theta_0_param)
 

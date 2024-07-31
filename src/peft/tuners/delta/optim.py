@@ -73,7 +73,6 @@ class BlockOptimizer(Optimizer):
         self.state_dict = base_optimizer.state_dict # for compatibility of hf Trainer
         
         self.model = model
-
         if start_block is not None:
             self.current_block_idx = start_block
         elif switch_mode == "descending":
@@ -282,6 +281,11 @@ class BlockOptimizer(Optimizer):
                 **self.defaults
             },
         ]
+        #
+        def hook_fn(grad, name):
+            gradient_file_path = "/home/ubuntu/date/mq_tst/temp_2/LLaMA-Factory-Badam/bp_gradient/gradients.txt"
+            with open(gradient_file_path, "a") as f:
+                f.write(f"Gradient for {name}: {grad}\n")
 
         for i, (name, param) in enumerate(self.named_parameters_list):
             if not any(p in name for p in self.active_param_prefixs):
@@ -292,9 +296,15 @@ class BlockOptimizer(Optimizer):
                 #     breakpoint()
                 if self.lora_mode and "delta_theta" not in name:
                     continue
+                # delta mode and "delta_theta" in name:
+                # delta mode and [gamma, sign] in name:
+                # not delta mode
                 param.requires_grad_(True)
                 param_hp = param.clone().float().detach().to(param.device)
                 param_hp.requires_grad = True
+                
+                param.register_hook(lambda grad, name=name: hook_fn(grad, name))
+                param_hp.register_hook(lambda grad, name=name: hook_fn(grad, name))
                 
                 self.param_idx2lp[i] = param
                 self.param_idx2hp[i] = param_hp
@@ -341,4 +351,4 @@ class BlockOptimizer(Optimizer):
         elif self.switch_mode == "descending":
             self.current_block_idx = (self.current_block_idx - 1) % self.block_num
         elif self.switch_mode == "fixed":
-            pass
+            pass#
