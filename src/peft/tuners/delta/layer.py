@@ -1,20 +1,17 @@
 import math
-import warnings
-from typing import Any, Optional, Union
+from typing import Any, Union
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-from torch import svd_lowrank
+from bitsandbytes.nn import Params4bit
 from transformers.pytorch_utils import Conv1D
 
-from peft.tuners.tuners_utils import BaseTunerLayer, check_adapters_to_merge
-from peft.utils.integrations import dequantize_module_weight, dequantize_bnb_weight
+from peft.tuners.tuners_utils import BaseTunerLayer
+from peft.utils.integrations import dequantize_bnb_weight
 from peft.utils.other import transpose
 
 from .utils import low_rank_proj, pack_sign
 
-from bitsandbytes.nn import Params4bit
 
 class DeltaLayer(BaseTunerLayer):
     # All names of layers that may contain (trainable) adapter weights
@@ -29,16 +26,17 @@ class DeltaLayer(BaseTunerLayer):
         self.scaling = {}
         self.delta_dropout = nn.ModuleDict({})
         self.delta_theta = nn.ModuleDict({})
+        self.addon_delta = nn.ModuleDict({})
         # For Low Rank Projection
-        self.delta_A = nn.ModuleDict({})
-        self.delta_B = nn.ModuleDict({})
-        self.delta_S = nn.ParameterDict({})
-        # for sign info and gamma -> Lion algorithm
-        # self.sign_info = nn.ParameterDict({})
-        self.packed_sign_matrix = nn.ParameterDict({})
-        self.sign_original_shape = nn.ParameterDict({})
-        self.sign_gamma = nn.ParameterDict({})
-        # For Embedding layer
+        # self.delta_A = nn.ModuleDict({})
+        # self.delta_B = nn.ModuleDict({})
+        # self.delta_S = nn.ParameterDict({})
+        # # for sign info and gamma -> Lion algorithm
+        # # self.sign_info = nn.ParameterDict({})
+        # self.packed_sign_matrix = nn.ParameterDict({})
+        # self.sign_original_shape = nn.ParameterDict({})
+        # self.sign_gamma = nn.ParameterDict({})
+        # # For Embedding layer
         self.delta_embedding = nn.ParameterDict({})
         # Mark the weight as unmerged
         self._disable_adapters = False
@@ -84,9 +82,7 @@ class DeltaLayer(BaseTunerLayer):
         self.in_features = in_features
         self.out_features = out_features
 
-    def update_layer(
-        self, adapter_name, r, delta_alpha, delta_dropout, init_lora_weights, use_rslora
-    ):
+    def update_layer(self, adapter_name, r, delta_alpha, delta_dropout, init_lora_weights, use_rslora):
         # This code works for linear layers, override for other layer types
         if r <= 0:
             raise ValueError(f"`r` should be a positive integer value but the value passed is {r}")
@@ -105,16 +101,8 @@ class DeltaLayer(BaseTunerLayer):
         if init_lora_weights:
             self.delta_theta[adapter_name] = nn.Linear(self.in_features, self.out_features, bias=True)
 
-        # init the saving and loading adapters for detecting `state_dict`:
-
-        # Flatten the values tensor for bit packing
-        flat_values = self.base_layer.weight.data.view(-1)
-        num_values = flat_values.numel()
-        packed_size = (num_values + 7) // 8 # Ensure a multiple of 8
-
-        self.packed_sign_matrix[adapter_name] = nn.Parameter(torch.zeros(packed_size*4, dtype=torch.bool), requires_grad=False)
-        self.sign_original_shape[adapter_name] = nn.Parameter(torch.zeros(2, dtype=torch.bool), requires_grad=False)
-        self.sign_gamma[adapter_name] = nn.Parameter(torch.tensor(0, dtype=torch.bool), requires_grad=False)
+        # delta only, will init all delta weights
+        self.spawn_delta_matrix(adapter_name)
 
         if use_rslora:
             self.scaling[adapter_name] = delta_alpha / math.sqrt(r)
@@ -132,7 +120,7 @@ class DeltaLayer(BaseTunerLayer):
     def spawn_delta_matrix(self, adapter_name):
         use_bias = True if self.base_layer.bias is not None else False
 
-        if use_bias == False:
+        if use_bias is False:
             self.delta_theta[adapter_name] = nn.Linear(self.in_features, self.out_features, bias=False)
             nn.init.zeros_(self.delta_theta[adapter_name].weight)
         else:
@@ -141,9 +129,19 @@ class DeltaLayer(BaseTunerLayer):
             nn.init.zeros_(self.delta_theta[adapter_name].bias)
         self._move_adapter_to_device_of_base_layer(adapter_name)
 
+    def spawn_addon_delta(self, adapter_name):
+        use_bias = True if self.base_layer.bias is not None else False
+
+        if use_bias is False:
+            self.addon_delta[adapter_name] = nn.Linear(self.in_features, self.out_features, bias=False, dtype=torch.bfloat16)
+            nn.init.zeros_(self.addon_delta[adapter_name].weight)
+        else:
+            self.addon_delta[adapter_name] = nn.Linear(self.in_features, self.out_features, bias=True, dtype=torch.bfloat16)
+            nn.init.zeros_(self.addon_delta[adapter_name].weight)
+            nn.init.zeros_(self.addon_delta[adapter_name].bias)
+        self._move_adapter_to_device_of_base_layer(adapter_name)
 
     def del_delta_create_AB(self, adapter_name):
-
         r = self.r[adapter_name]
         # start low rank proj
         # A, B, difference = low_rank_proj(self.delta_theta[adapter_name].weight.data, self.r)
@@ -182,7 +180,6 @@ class DeltaLayer(BaseTunerLayer):
 
         return loss
 
-
     # Lion-like algorithm
     def del_delta_create_gamma_sign(self, adapter_name):
         # print("del_delta_create_gamma_sign")
@@ -208,17 +205,15 @@ class DeltaLayer(BaseTunerLayer):
 
         print(f"gamma: {gamma}")
 
-
     def reset_lora_parameters(self, adapter_name, init_lora_weights):
         if init_lora_weights is False:
-            return 
+            return
         if adapter_name in self.delta_theta.keys():
             if init_lora_weights is True:
                 nn.init.zeros_(self.delta_theta[adapter_name].weight)
                 nn.init.zeros_(self.delta_theta[adapter_name].bias)
         if adapter_name in self.delta_embedding.keys():
             nn.init.zeros_(self.delta_embedding[adapter_name])
-
 
 
 class Linear(nn.Module, DeltaLayer):

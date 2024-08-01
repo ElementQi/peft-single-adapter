@@ -1,24 +1,20 @@
-import torch
-import random
-from torch.optim import Optimizer
-from torch import Tensor
-from collections import defaultdict
-from typing import List, Optional, Dict, Union, Iterable
 import time
-import math
 import warnings
+from collections import defaultdict
+from typing import Dict, List, Optional
+
+import torch
+from torch.optim import Optimizer
 from transformers.pytorch_utils import ALL_LAYERNORM_LAYERS
-from .layer import DeltaLayer
-from .utils import init_layers_with_active_block, del_and_create_with_active_block, del_delta_create_lion_like
 
 
-
-# Optional [0, 1, 2]. 
-    # 0: no print
-    # 1: print the relative time whenever a parameter's grad is ready
-    # 2: for debug usage only. Will set all the parameters trainable, print the grad ready time for each parameter. 
-    #     In this case, all the grad except the "specified" trainable parameters will be set to None after being calculated.
+# Optional [0, 1, 2].
+# 0: no print
+# 1: print the relative time whenever a parameter's grad is ready
+# 2: for debug usage only. Will set all the parameters trainable, print the grad ready time for each parameter.
+#     In this case, all the grad except the "specified" trainable parameters will be set to None after being calculated.
 BACKWARD_VERBOSE = 0
+
 
 class BlockOptimizer(Optimizer):
     """Wrap the original optimizer to update trainable parameters periodically based on a specified block list."""
@@ -35,8 +31,8 @@ class BlockOptimizer(Optimizer):
         include_embedding=False,
         include_lm_head=False,
         verbose: int = 1,
-        log_fn = None,
-        model = None
+        log_fn=None,
+        model=None,
     ):
         """
         Args:
@@ -51,7 +47,9 @@ class BlockOptimizer(Optimizer):
             log_fn: A logging function for recording information during optimization. Defaults to None.
         """
         if block_prefix_list is None:
-            block_prefix_list = self.infer_param_groups([n for n, _ in named_parameters_list], include_embedding, include_lm_head)
+            block_prefix_list = self.infer_param_groups(
+                [n for n, _ in named_parameters_list], include_embedding, include_lm_head
+            )
 
         assert switch_mode in ["random", "descending", "ascending", "fixed"]
         assert isinstance(block_prefix_list, list)
@@ -70,8 +68,8 @@ class BlockOptimizer(Optimizer):
         self.defaults = base_optimizer.defaults
 
         self.param_groups = base_optimizer.param_groups
-        self.state_dict = base_optimizer.state_dict # for compatibility of hf Trainer
-        
+        self.state_dict = base_optimizer.state_dict  # for compatibility of hf Trainer
+
         self.model = model
 
         if start_block is not None:
@@ -92,13 +90,15 @@ class BlockOptimizer(Optimizer):
         # if any("lora" in n for n, _ in named_parameters_list):
         #     self.lora_mode = True
         #     print("LoRA mode detected. Will only train the lora parameters.")
-            
+
         if any(isinstance(p, torch.FloatTensor) for _, p in named_parameters_list):
-            warnings.warn("BAdam expect model to be loaded in fp16 precision while detect fp32 weight. \
-                This will cause additional memory usage and lose the benefit of mixed precision training.")
-            
+            warnings.warn(
+                "BAdam expect model to be loaded in fp16 precision while detect fp32 weight. \
+                This will cause additional memory usage and lose the benefit of mixed precision training."
+            )
+
         super().__init__(self.param_groups, base_optimizer.defaults)
-        
+
         if BACKWARD_VERBOSE:
             self.record_mark = True
             self.ordered_named_params = []
@@ -112,13 +112,13 @@ class BlockOptimizer(Optimizer):
         if BACKWARD_VERBOSE == 2:
             for name, param in self.named_parameters_list:
                 param.requires_grad_(True)
-    
+
     @property
     def embedding_layer(self):
         for n, p in self.named_parameters_list:
             if "embed" in n:
                 return p
-    
+
     @property
     def lm_head_layer(self):
         for n, p in self.named_parameters_list:
@@ -133,63 +133,61 @@ class BlockOptimizer(Optimizer):
             * lm_head and others
         """
         import re
-        
+
         block_prefix_list = []
         lm_head_and_other_params = []
-        embed_pattern = r'.*embed[^.]*\.'
-        layer_pattern = r'.*layers.[^.]*\.'
+        embed_pattern = r".*embed[^.]*\."
+        layer_pattern = r".*layers.[^.]*\."
 
         for name in param_names:
             if any(prefix[0] in name for prefix in block_prefix_list):
                 continue
-            
+
             if re.findall(layer_pattern, name):
                 block_prefix_list.append(re.findall(layer_pattern, name))
             elif re.findall(embed_pattern, name) and include_embedding:
                 block_prefix_list.append(re.findall(embed_pattern, name))
             else:
                 lm_head_and_other_params.append(name)
-        
+
         if include_lm_head:
             block_prefix_list.append(lm_head_and_other_params)
-        
+
         return block_prefix_list
-                
+
     def test_hook(self, name):
         """hook used for recording the time of gradient calculation, see comments on BACKWARD_VERBOSE for more details."""
-        
+
         def func(x):
             if self.record_mark:
-                self.backward_start_time = time.time()          
+                self.backward_start_time = time.time()
                 self.record_mark = False
-                relative_time = 0.
+                relative_time = 0.0
             else:
                 relative_time = time.time() - self.backward_start_time
             if any(p_name in name for p_name in self.active_param_prefixs):
                 print(f"param: {name:<50} relative time: {relative_time}")
-            
+
             iterator = self.named_parameters_list
-                
+
             for n, p in iterator:
-                
                 if p.requires_grad and p.grad is not None:
                     print("parameter name: ", n, "relative time", time.time() - self.backward_start_time)
-                    
-                    if (not any(p_name in n for p_name in self.active_param_prefixs)) and \
-                        BACKWARD_VERBOSE == 2:
+
+                    if (not any(p_name in n for p_name in self.active_param_prefixs)) and BACKWARD_VERBOSE == 2:
                         p.grad = None
-                    
+
                     if len(self.ordered_named_params) < self.param_num:
                         self.ordered_named_params.append((n, p))
                     # break since for each step only one parameter's grad is updated
                     break
             return x
-        
+
         return func
 
     def load_state_dict(self, state_dict: Dict[str, torch.Tensor]) -> None:
         return self.base_optimizer.load_state_dict(state_dict)
-    
+
     def _update_lr(self):
         # Make sure the learning rate of the base_optimizer is consistent with the BlockOptimizer
         for group in self.base_optimizer.param_groups:
@@ -246,41 +244,16 @@ class BlockOptimizer(Optimizer):
 
         self.active_param_prefixs = self.block_prefix_list[self.current_block_idx] + self.active_modules
 
-        if verbose >=1:
-            print(f"Now init the block adapter {self.block_prefix_list[self.current_block_idx]}")
-
-        init_layers_with_active_block(self.model, self.active_param_prefixs)
-        # don't forget to update `self.named_parameters_list`
-        self.named_parameters_list = list(self.model.named_parameters())
-        
-        # Make sure there are trainable parameters in the current block when using lora
-        # while self.lora_mode:
-        #     active_param_names = [n for n, _ in self.named_parameters_list if any(p in n for p in self.active_param_prefixs)]
-        #     if all("lora" not in n for n in active_param_names):
-        #         print(f"In LoRA mode but no lora parameters in the current block with prefix: {self.active_param_prefixs}. Switching to the next block.")
-        #         self._update_active_block()
-        #         self.active_param_prefixs = self.block_prefix_list[self.current_block_idx] + self.active_modules
-        #         continue
-        #     break
-        
         if verbose >= 1:
             print("Parameters with the following prefix will be trainable:", self.active_param_prefixs)
 
         # Reset parameters to be optimized
         self.param_idx2lp = {}
         self.param_idx2hp = {}
-        
+
         active_param_groups = [
-            {
-                "params": [],
-                "weight_decay": self.param_groups[0]['weight_decay'],
-                **self.defaults
-            },
-            {
-                "params": [],
-                "weight_decay": 0.0,
-                **self.defaults
-            },
+            {"params": [], "weight_decay": self.param_groups[0]["weight_decay"], **self.defaults},
+            {"params": [], "weight_decay": 0.0, **self.defaults},
         ]
 
         for i, (name, param) in enumerate(self.named_parameters_list):
@@ -288,43 +261,44 @@ class BlockOptimizer(Optimizer):
                 param.requires_grad_(False)
                 param.grad = None
             else:
-                # if self.global_step >= 6:
-                #     breakpoint()
+                if self.global_step >= 6:
+                    breakpoint()
                 if self.lora_mode and "delta_theta" not in name:
                     continue
                 param.requires_grad_(True)
                 param_hp = param.clone().float().detach().to(param.device)
                 param_hp.requires_grad = True
-                
+
                 self.param_idx2lp[i] = param
                 self.param_idx2hp[i] = param_hp
-                
+
                 if "bias" not in name and not isinstance(param, tuple(ALL_LAYERNORM_LAYERS)):
-                    active_param_groups[0]['params'].append(param_hp)
+                    active_param_groups[0]["params"].append(param_hp)
                 else:
-                    active_param_groups[1]['params'].append(param_hp)
-                
+                    active_param_groups[1]["params"].append(param_hp)
+
                 if verbose >= 2:
                     print(name)
 
         self.base_optimizer.param_groups = active_param_groups
-        
+
         import gc
+
         gc.collect()
         # Clean the optimizer state
         self.base_optimizer.state = defaultdict(lambda: {})
 
-        if self.global_step>=1:
-            # del and create A, B
-            temp_current_block_idx = (self.current_block_idx - 1) % self.block_num
-            back_prefix = self.block_prefix_list[temp_current_block_idx] + self.active_modules
-            avg_low_rank_projection_loss = del_delta_create_lion_like(self.model, back_prefix)
+        # if self.global_step>=1:
+        #     # del and create A, B
+        #     temp_current_block_idx = (self.current_block_idx - 1) % self.block_num
+        #     back_prefix = self.block_prefix_list[temp_current_block_idx] + self.active_modules
+        #     avg_low_rank_projection_loss = del_delta_create_lion_like(self.model, back_prefix)
 
-            if self.verbose >= 1:
-                print(f"After low rank projection, the projection loss is {avg_low_rank_projection_loss}")
-                
-            # don't forget to update `self.named_parameters_list`
-            self.named_parameters_list = list(self.model.named_parameters())
+        #     if self.verbose >= 1:
+        #         print(f"After low rank projection, the projection loss is {avg_low_rank_projection_loss}")
+
+        #     # don't forget to update `self.named_parameters_list`
+        #     self.named_parameters_list = list(self.model.named_parameters())
 
         self._update_active_block()
 

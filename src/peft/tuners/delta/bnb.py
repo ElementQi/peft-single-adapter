@@ -1,16 +1,12 @@
-
-from typing import Any, Optional
-
 import bitsandbytes as bnb
 import torch
 
-from peft.import_utils import is_bnb_4bit_available, is_bnb_available
-from peft.tuners.tuners_utils import BaseTunerLayer, check_adapters_to_merge
-from peft.utils.integrations import dequantize_bnb_weight
+from peft.import_utils import is_bnb_4bit_available
+from peft.tuners.tuners_utils import BaseTunerLayer
 from peft.utils.other import transpose
 
 from .layer import DeltaLayer
-from .utils import unpack_and_restore
+
 
 class Linear4bit(torch.nn.Module, DeltaLayer):
     # Lora implemented in a dense layer
@@ -39,7 +35,6 @@ class Linear4bit(torch.nn.Module, DeltaLayer):
             use_rslora=use_rslora,
         )
 
-
     def get_delta_weight(self, adapter):
         return (
             transpose(
@@ -48,7 +43,6 @@ class Linear4bit(torch.nn.Module, DeltaLayer):
             )
             * self.scaling[adapter]
         )
-
 
     def forward(self, x: torch.Tensor, *args, **kwargs) -> torch.Tensor:
         # self._check_forward_args(x, *args, **kwargs)
@@ -63,49 +57,9 @@ class Linear4bit(torch.nn.Module, DeltaLayer):
         result = result.clone()
 
         for active_adapter in self.active_adapters:
-            # if active_adapter not in self.lora_A.keys():
-            #     continue
-
             # this means delta_theta is empty
-
             if active_adapter not in self.delta_theta.keys():
-                # now we change the init value of `self.sign_gamma` do have 'default' key
-                # and that key's value is set default to None -> then the bool 0
-
-                # if self.sign_gamma[active_adapter] == False:  # noqa: E712
-                if self.sign_gamma[active_adapter] == 0:
-                    # this branch means the gamma has not been generated
-                # if active_adapter not in self.sign_gamma.keys():
-                    continue
-                else:
-                    gamma = self.sign_gamma[active_adapter]
-                    # sign_info = self.sign_info[active_adapter]
-
-                    packed_sign_matrix = self.packed_sign_matrix[active_adapter]
-                    sign_original_shape = self.sign_original_shape[active_adapter]
-
-                    dropout = self.delta_dropout[active_adapter]
-                    scaling = self.scaling[active_adapter]
-                    data_type = torch.float16
-                    # data_type = sign_info["original_dtype"]
-
-                    lion_scaler = 1e-2
-
-                    requires_conversion = not torch.is_autocast_enabled()
-                    if requires_conversion:
-                        # TODO we should all use this kind of dtype
-                        expected_dtype = result.dtype
-                        x = x.to(data_type)
-
-                    # already retyped
-                    sign_matrix = unpack_and_restore(packed_sign_matrix, sign_original_shape)
-                    # do this needed? gamma generated from norm is float32
-                    if not isinstance(gamma, float):
-                        gamma = gamma.to(data_type)
-
-                    output = dropout(x) @ sign_matrix.T * gamma * scaling * lion_scaler
-                    # import pdb; pdb.set_trace()
-
+                continue
             else:
                 delta_theta = self.delta_theta[active_adapter]
                 dropout = self.delta_dropout[active_adapter]
@@ -128,6 +82,7 @@ class Linear4bit(torch.nn.Module, DeltaLayer):
     def __repr__(self) -> str:
         rep = super().__repr__()
         return "delta." + rep
+
 
 def dispatch_bnb_4bit(target: torch.nn.Module, adapter_name: str, **kwargs):
     new_module = None

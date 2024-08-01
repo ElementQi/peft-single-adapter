@@ -14,11 +14,11 @@
 
 from peft.import_utils import is_bnb_4bit_available, is_bnb_available
 
-
 from .config import DeltaConfig
-from .layer import Linear, DeltaLayer
+from .layer import DeltaLayer, Linear
 from .model import DeltaModel
 from .optim import BlockOptimizer
+
 
 __all__ = ["DeltaConfig", "Linear", "DeltaLayer", "DeltaModel", "BlockOptimizer"]
 

@@ -1,38 +1,32 @@
-import math
-import operator
 import re
 import warnings
 from contextlib import contextmanager
-from dataclasses import asdict, replace
+from dataclasses import asdict
 from enum import Enum
-from functools import partial, reduce
+from functools import partial
 from itertools import chain
-from typing import Literal, Optional
+from typing import Optional
 
 import torch
 from torch import nn
-from tqdm import tqdm
+from torch.nn import Embedding, Linear
 
-from peft.import_utils import is_bnb_4bit_available, is_bnb_available
+from peft.import_utils import is_bnb_4bit_available
 from peft.tuners.tuners_utils import (
     BaseTuner,
     BaseTunerLayer,
     check_target_module_exists,
-    onload_layer,
     replicate_layers,
 )
 from peft.utils import (
     TRANSFORMERS_MODELS_TO_LORA_TARGET_MODULES_MAPPING,
     ModulesToSaveWrapper,
-    _freeze_adapter,
-    _get_submodules,
-    get_peft_model_state_dict,
     get_quantization_config,
 )
 
-from .layer import DeltaLayer as LoraLayer
 from .config import DeltaConfig as LoraConfig
-from torch.nn import Embedding, Linear
+from .layer import DeltaLayer as LoraLayer
+
 
 def _adapter_names_pre_forward_hook(target, args, kwargs, adapter_names):
     # pre-forward hook to inject the adapter_names argument when using mixed adapter batches inference
@@ -162,7 +156,6 @@ class DeltaModel(BaseTuner):
             # adding an additional adapter: it is not automatically trainable
             new_module.requires_grad_(False)
         self._replace_module(parent, target_name, new_module, target)
-
 
     def _replace_module(self, parent, child_name, new_module, child):
         setattr(parent, child_name, new_module)
