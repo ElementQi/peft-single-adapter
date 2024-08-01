@@ -281,11 +281,6 @@ class BlockOptimizer(Optimizer):
                 **self.defaults
             },
         ]
-        #
-        def hook_fn(grad, name):
-            gradient_file_path = "/home/ubuntu/date/mq_tst/temp_2/LLaMA-Factory-Badam/bp_gradient/gradients.txt"
-            with open(gradient_file_path, "a") as f:
-                f.write(f"Gradient for {name}: {grad}\n")
 
         for i, (name, param) in enumerate(self.named_parameters_list):
             if not any(p in name for p in self.active_param_prefixs):
@@ -302,10 +297,7 @@ class BlockOptimizer(Optimizer):
                 param.requires_grad_(True)
                 param_hp = param.clone().float().detach().to(param.device)
                 param_hp.requires_grad = True
-                
-                param.register_hook(lambda grad, name=name: hook_fn(grad, name))
-                param_hp.register_hook(lambda grad, name=name: hook_fn(grad, name))
-                
+
                 self.param_idx2lp[i] = param
                 self.param_idx2hp[i] = param_hp
                 
@@ -351,4 +343,4 @@ class BlockOptimizer(Optimizer):
         elif self.switch_mode == "descending":
             self.current_block_idx = (self.current_block_idx - 1) % self.block_num
         elif self.switch_mode == "fixed":
-            pass#
+            pass
