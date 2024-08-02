@@ -26,11 +26,10 @@ class DeltaLayer(BaseTunerLayer):
         self.scaling = {}
         self.delta_dropout = nn.ModuleDict({})
         self.delta_theta = nn.ModuleDict({})
-        self.addon_delta = nn.ModuleDict({})
         # For Low Rank Projection
-        # self.delta_A = nn.ModuleDict({})
-        # self.delta_B = nn.ModuleDict({})
-        # self.delta_S = nn.ParameterDict({})
+        self.delta_A = nn.ModuleDict({})
+        self.delta_B = nn.ModuleDict({})
+        self.delta_S = nn.ParameterDict({})
         # # for sign info and gamma -> Lion algorithm
         # # self.sign_info = nn.ParameterDict({})
         # self.packed_sign_matrix = nn.ParameterDict({})
@@ -102,7 +101,10 @@ class DeltaLayer(BaseTunerLayer):
             self.delta_theta[adapter_name] = nn.Linear(self.in_features, self.out_features, bias=True)
 
         # delta only, will init all delta weights
-        self.spawn_delta_matrix(adapter_name)
+        # self.spawn_delta_matrix(adapter_name)
+
+        # low rank projection, will init all A, B, S
+        self.spawn_low_rank_componets(adapter_name)
 
         if use_rslora:
             self.scaling[adapter_name] = delta_alpha / math.sqrt(r)
@@ -116,6 +118,25 @@ class DeltaLayer(BaseTunerLayer):
 
         # when do initialization, we have no need to set the adapters to be trainable or not
         self.set_adapter(self.active_adapters)
+
+    def spawn_low_rank_componets(self, adapter_name):
+        use_bias = True if self.base_layer.bias is not None else False
+        r = self.r[adapter_name]
+
+        if use_bias is False:
+            self.delta_A[adapter_name] = nn.Linear(self.in_features, r, bias=False, dtype=torch.bfloat16, requires_grad=False)
+            self.delta_B[adapter_name] = nn.Linear(r, self.out_features, bias=False, dtype=torch.bfloat16, requires_grad=False)
+            self.delta_S[adapter_name] = nn.Parameter(torch.zeros(r, dtype=torch.bfloat16), requires_grad=False)
+
+            nn.init.zeros_(self.delta_A[adapter_name].weight)
+            nn.init.zeros_(self.delta_B[adapter_name].weight)
+        else:
+            self.delta_A[adapter_name] = nn.Linear(self.in_features, r, bias=True, dtype=torch.bfloat16, requires_grad=False)
+            self.delta_B[adapter_name] = nn.Linear(r, self.out_features, bias=False, dtype=torch.bfloat16, requires_grad=False)
+            self.delta_S[adapter_name] = nn.Parameter(torch.tensor(r, dtype=torch.bool), requires_grad=False)
+            nn.init.zeros_(self.delta_theta[adapter_name].weight)
+            nn.init.zeros_(self.delta_theta[adapter_name].bias)
+        self._move_adapter_to_device_of_base_layer(adapter_name)
 
     def spawn_delta_matrix(self, adapter_name):
         use_bias = True if self.base_layer.bias is not None else False
@@ -140,6 +161,43 @@ class DeltaLayer(BaseTunerLayer):
             nn.init.zeros_(self.addon_delta[adapter_name].weight)
             nn.init.zeros_(self.addon_delta[adapter_name].bias)
         self._move_adapter_to_device_of_base_layer(adapter_name)
+
+    def del_delta_update_AB(self, adapter_name):
+        r = self.r[adapter_name]
+        # start low rank proj
+        # A, B, difference = low_rank_proj(self.delta_theta[adapter_name].weight.data, self.r)
+        # there is a transpose
+        # A, B, loss = low_rank_proj(self.delta_theta[adapter_name].weight.data.T, r)
+        # since `fan_in_fan_out` is `False`, we have no need to do transpose
+        A, B, S, loss = low_rank_proj(self.delta_theta[adapter_name].weight.data, r)
+
+        # use_bias = False if self.bias == "none" else True
+        use_bias = True if self.base_layer.bias is not None else False
+
+        if use_bias:
+            bias_data = self.delta_theta[adapter_name].bias.data
+        else:
+            bias_data = None
+
+        # delete delta_theta
+        del self.delta_theta[adapter_name]
+        self.delta_theta = nn.ModuleDict({})
+
+        # create A, B matrix on model
+
+        self.delta_A[adapter_name].weight.data = A
+        self.delta_B[adapter_name].weight.data = B
+        self.delta_S[adapter_name].data = S
+
+        if self.delta_B[adapter_name].bias is not None and bias_data is not None:
+            self.delta_B[adapter_name].bias.data = bias_data
+
+        self._move_adapter_to_device_of_base_layer(adapter_name)
+
+        # difference = "placeholder"
+        # return difference
+
+        return loss
 
     def del_delta_create_AB(self, adapter_name):
         r = self.r[adapter_name]

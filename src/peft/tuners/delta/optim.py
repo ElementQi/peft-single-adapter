@@ -6,6 +6,7 @@ from typing import Dict, List, Optional
 import torch
 from torch.optim import Optimizer
 from transformers.pytorch_utils import ALL_LAYERNORM_LAYERS
+from .utils import init_layers_with_active_block, del_and_create_with_active_block, del_delta_create_lion_like
 
 
 # Optional [0, 1, 2].
@@ -247,6 +248,10 @@ class BlockOptimizer(Optimizer):
         if verbose >= 1:
             print("Parameters with the following prefix will be trainable:", self.active_param_prefixs)
 
+        init_layers_with_active_block(self.model, self.active_param_prefixs)
+        # don't forget to update `self.named_parameters_list`
+        self.named_parameters_list = list(self.model.named_parameters())
+
         # Reset parameters to be optimized
         self.param_idx2lp = {}
         self.param_idx2hp = {}
@@ -288,17 +293,17 @@ class BlockOptimizer(Optimizer):
         # Clean the optimizer state
         self.base_optimizer.state = defaultdict(lambda: {})
 
-        # if self.global_step>=1:
-        #     # del and create A, B
-        #     temp_current_block_idx = (self.current_block_idx - 1) % self.block_num
-        #     back_prefix = self.block_prefix_list[temp_current_block_idx] + self.active_modules
-        #     avg_low_rank_projection_loss = del_delta_create_lion_like(self.model, back_prefix)
+        if self.global_step>=1:
+            # del and create A, B
+            temp_current_block_idx = (self.current_block_idx - 1) % self.block_num
+            back_prefix = self.block_prefix_list[temp_current_block_idx] + self.active_modules
+            avg_low_rank_projection_loss = del_delta_create_lion_like(self.model, back_prefix)
 
-        #     if self.verbose >= 1:
-        #         print(f"After low rank projection, the projection loss is {avg_low_rank_projection_loss}")
+            if self.verbose >= 1:
+                print(f"After low rank projection, the projection loss is {avg_low_rank_projection_loss}")
 
-        #     # don't forget to update `self.named_parameters_list`
-        #     self.named_parameters_list = list(self.model.named_parameters())
+            # don't forget to update `self.named_parameters_list`
+            self.named_parameters_list = list(self.model.named_parameters())
 
         self._update_active_block()
 
