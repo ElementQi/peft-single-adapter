@@ -169,7 +169,12 @@ class DeltaLayer(BaseTunerLayer):
         # there is a transpose
         # A, B, loss = low_rank_proj(self.delta_theta[adapter_name].weight.data.T, r)
         # since `fan_in_fan_out` is `False`, we have no need to do transpose
-        A, B, S, loss = low_rank_proj(self.delta_theta[adapter_name].weight.data, r)
+        A_old = self.delta_A[adapter_name].weight.T
+        B_old = self.delta_B[adapter_name].weight.T
+        S_old = self.delta_S[adapter_name]
+        old_output = (A_old @ torch.diag(S_old) @ B_old).T
+        # breakpoint()
+        A, B, S, loss = low_rank_proj(old_output + self.delta_theta[adapter_name].weight.data, r)
 
         # use_bias = False if self.bias == "none" else True
         use_bias = True if self.base_layer.bias is not None else False
