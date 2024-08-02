@@ -173,20 +173,28 @@ class DeltaLayer(BaseTunerLayer):
         B_old = self.delta_B[adapter_name].weight.T
         S_old = self.delta_S[adapter_name]
         old_output = (A_old @ torch.diag(S_old) @ B_old).T
-        # breakpoint()
-        A, B, S, loss = low_rank_proj(old_output + self.delta_theta[adapter_name].weight.data, r)
+
+        new_output = old_output + self.delta_theta[adapter_name].weight.data
+
+        del A_old, B_old, S_old, self.delta_theta[adapter_name]
+        torch.cuda.empty_cache()
+
+        import gc
+        gc.collect()
+
+        A, B, S, loss = low_rank_proj(new_output, r)
 
         # use_bias = False if self.bias == "none" else True
-        use_bias = True if self.base_layer.bias is not None else False
+        # use_bias = True if self.base_layer.bias is not None else False
 
-        if use_bias:
-            bias_data = self.delta_theta[adapter_name].bias.data
-        else:
-            bias_data = None
+        # if use_bias:
+        #     bias_data = self.delta_theta[adapter_name].bias.data
+        # else:
+        #     bias_data = None
 
         # delete delta_theta
-        del self.delta_theta[adapter_name]
-        self.delta_theta = nn.ModuleDict({})
+        # del self.delta_theta[adapter_name]
+        # self.delta_theta = nn.ModuleDict({})
 
         # create A, B matrix on model
 
@@ -194,8 +202,8 @@ class DeltaLayer(BaseTunerLayer):
         self.delta_B[adapter_name].weight.data = B
         self.delta_S[adapter_name].data = S
 
-        if self.delta_B[adapter_name].bias is not None and bias_data is not None:
-            self.delta_B[adapter_name].bias.data = bias_data
+        # if self.delta_B[adapter_name].bias is not None and bias_data is not None:
+        #     self.delta_B[adapter_name].bias.data = bias_data
 
         self._move_adapter_to_device_of_base_layer(adapter_name)
 
