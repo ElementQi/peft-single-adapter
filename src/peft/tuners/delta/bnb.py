@@ -57,10 +57,41 @@ class Linear4bit(torch.nn.Module, DeltaLayer):
         result = result.clone()
 
         for active_adapter in self.active_adapters:
-            # this means delta_theta is empty
-            if active_adapter not in self.delta_theta.keys():
+            if active_adapter not in self.delta_A.keys():
                 continue
+            delta_A = self.delta_A[active_adapter]
+            delta_B = self.delta_B[active_adapter]
+            delta_S = self.delta_S[active_adapter]
+            dropout = self.delta_dropout[active_adapter]
+            scaling = self.scaling[active_adapter]
+
+            requires_conversion = not torch.is_autocast_enabled()
+            if requires_conversion:
+                expected_dtype = result.dtype
+                x = x.to(delta_A.weight.dtype)
+
+            use_bias = True if delta_B.bias is not None else False
+
+            # delta_tilde = B @ torch.diag(S) @ A
+            # output = x @ delta_tilde.weight.T * scaling
+            # U, Vh's shape = B, A's shape
+            # (torch.Size([2816, 32]), torch.Size([32, 1024]))
+
+            # for precision's concern, using Einstein summation convention
+            A = delta_A.weight.T
+            B = delta_B.weight.T
+            S = delta_S
+            bias = delta_B.bias
+
+            # x @ A @ diag(S) @ B + bias
+            if use_bias:
+                output = (x @ A @ torch.diag(S) @ B + bias) * scaling
+                # output = (torch.einsum('ij,jk,k,kl->il', x, A, S, B) + bias) * scaling
             else:
+                output = x @ A @ torch.diag(S) @ B * scaling
+
+            # this means delta_theta is not empty
+            if active_adapter in self.delta_theta.keys():
                 delta_theta = self.delta_theta[active_adapter]
                 dropout = self.delta_dropout[active_adapter]
                 scaling = self.scaling[active_adapter]
@@ -70,7 +101,7 @@ class Linear4bit(torch.nn.Module, DeltaLayer):
                     expected_dtype = result.dtype
                     x = x.to(delta_theta.weight.dtype)
 
-                output = delta_theta(dropout(x)) * scaling
+                output = delta_theta(dropout(x)) * scaling + output
 
             if requires_conversion:
                 output = output.to(expected_dtype)
@@ -78,6 +109,7 @@ class Linear4bit(torch.nn.Module, DeltaLayer):
             result = result + output
 
         return result
+
 
     def __repr__(self) -> str:
         rep = super().__repr__()

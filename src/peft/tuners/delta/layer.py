@@ -124,16 +124,16 @@ class DeltaLayer(BaseTunerLayer):
         r = self.r[adapter_name]
 
         if use_bias is False:
-            self.delta_A[adapter_name] = nn.Linear(self.in_features, r, bias=False, dtype=torch.bfloat16, requires_grad=False)
-            self.delta_B[adapter_name] = nn.Linear(r, self.out_features, bias=False, dtype=torch.bfloat16, requires_grad=False)
-            self.delta_S[adapter_name] = nn.Parameter(torch.zeros(r, dtype=torch.bfloat16), requires_grad=False)
+            self.delta_A[adapter_name] = nn.Linear(self.in_features, r, bias=False, dtype=torch.bfloat16)
+            self.delta_B[adapter_name] = nn.Linear(r, self.out_features, bias=False, dtype=torch.bfloat16)
+            self.delta_S[adapter_name] = nn.Parameter(torch.zeros(r, dtype=torch.bfloat16))
 
             nn.init.zeros_(self.delta_A[adapter_name].weight)
             nn.init.zeros_(self.delta_B[adapter_name].weight)
         else:
-            self.delta_A[adapter_name] = nn.Linear(self.in_features, r, bias=True, dtype=torch.bfloat16, requires_grad=False)
-            self.delta_B[adapter_name] = nn.Linear(r, self.out_features, bias=False, dtype=torch.bfloat16, requires_grad=False)
-            self.delta_S[adapter_name] = nn.Parameter(torch.tensor(r, dtype=torch.bool), requires_grad=False)
+            self.delta_A[adapter_name] = nn.Linear(self.in_features, r, bias=True, dtype=torch.bfloat16)
+            self.delta_B[adapter_name] = nn.Linear(r, self.out_features, bias=False, dtype=torch.bfloat16)
+            self.delta_S[adapter_name] = nn.Parameter(torch.tensor(r, dtype=torch.bool, requires_grad=False))
             nn.init.zeros_(self.delta_theta[adapter_name].weight)
             nn.init.zeros_(self.delta_theta[adapter_name].bias)
         self._move_adapter_to_device_of_base_layer(adapter_name)

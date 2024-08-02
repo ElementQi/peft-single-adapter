@@ -6,7 +6,7 @@ from typing import Dict, List, Optional
 import torch
 from torch.optim import Optimizer
 from transformers.pytorch_utils import ALL_LAYERNORM_LAYERS
-from .utils import init_layers_with_active_block, del_and_create_with_active_block, del_delta_create_lion_like
+from .utils import init_layers_with_active_block, del_delta_update_AB_with_active_block
 
 
 # Optional [0, 1, 2].
@@ -266,8 +266,8 @@ class BlockOptimizer(Optimizer):
                 param.requires_grad_(False)
                 param.grad = None
             else:
-                # if self.global_step >= 6:
-                #     breakpoint()
+                if self.global_step >= 6:
+                    breakpoint()
                 if self.lora_mode and "delta_theta" not in name:
                     continue
                 param.requires_grad_(True)
@@ -297,7 +297,7 @@ class BlockOptimizer(Optimizer):
             # del and create A, B
             temp_current_block_idx = (self.current_block_idx - 1) % self.block_num
             back_prefix = self.block_prefix_list[temp_current_block_idx] + self.active_modules
-            avg_low_rank_projection_loss = del_delta_create_lion_like(self.model, back_prefix)
+            avg_low_rank_projection_loss = del_delta_update_AB_with_active_block(self.model, back_prefix)
 
             if self.verbose >= 1:
                 print(f"After low rank projection, the projection loss is {avg_low_rank_projection_loss}")
