@@ -121,10 +121,10 @@ class DeltaLayer(BaseTunerLayer):
         use_bias = True if self.base_layer.bias is not None else False
 
         if use_bias is False:
-            self.delta_theta[adapter_name] = nn.Linear(self.in_features, self.out_features, bias=False)
+            self.delta_theta[adapter_name] = nn.Linear(self.in_features, self.out_features, bias=False, dtype=torch.bfloat16)
             nn.init.zeros_(self.delta_theta[adapter_name].weight)
         else:
-            self.delta_theta[adapter_name] = nn.Linear(self.in_features, self.out_features, bias=True)
+            self.delta_theta[adapter_name] = nn.Linear(self.in_features, self.out_features, bias=True, dtype=torch.bfloat16)
             nn.init.zeros_(self.delta_theta[adapter_name].weight)
             nn.init.zeros_(self.delta_theta[adapter_name].bias)
         self._move_adapter_to_device_of_base_layer(adapter_name)
