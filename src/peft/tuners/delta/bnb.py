@@ -86,7 +86,6 @@ class Linear4bit(torch.nn.Module, DeltaLayer):
             # x @ A @ diag(S) @ B + bias
             if use_bias:
                 output = (x @ A @ torch.diag(S) @ B + bias) * scaling
-                # output = (torch.einsum('ij,jk,k,kl->il', x, A, S, B) + bias) * scaling
             else:
                 output = x @ A @ torch.diag(S) @ B * scaling
 
