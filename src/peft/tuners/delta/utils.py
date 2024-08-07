@@ -193,7 +193,10 @@ def low_rank_proj(delta_theta, r):
 
     # U, S, Vh 's shape
     # (torch.Size([2816, 2816]), torch.Size([1024]), torch.Size([1024, 1024]))
-    U, S, Vh = torch.linalg.svd(delta_theta, full_matrices=True, driver=None)
+
+    # U, S, Vh = torch.linalg.svd(delta_theta, full_matrices=True, driver=None)
+    # refer to loftq_utils.py:
+    U, S, Vh = torch.linalg.svd(delta_theta, full_matrices=False, driver=None)
 
     # choose first r singular value
     # U = U[:, :r]
@@ -203,8 +206,8 @@ def low_rank_proj(delta_theta, r):
     # refer to loftq_utils.py:
     # L = U @ (torch.sqrt(torch.diag(S)[:, 0:reduced_rank]))
     # R = torch.sqrt(torch.diag(S)[0:reduced_rank, :]) @ Vh
-    U = U @ (torch.sqrt(torch.diag(S)[:, :r]))
-    Vh = torch.sqrt(torch.diag(S)[:r, :]) @ Vh
+    U = U @ (torch.sqrt(torch.diag(S)[:, 0:r]))
+    Vh = torch.sqrt(torch.diag(S)[0:r, :]) @ Vh
 
     # U, Vh's shape
     # (torch.Size([2816, 32]), torch.Size([32, 1024]))
