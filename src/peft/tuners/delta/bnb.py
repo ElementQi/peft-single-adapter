@@ -61,7 +61,7 @@ class Linear4bit(torch.nn.Module, DeltaLayer):
                 continue
             delta_A = self.delta_A[active_adapter]
             delta_B = self.delta_B[active_adapter]
-            delta_S = self.delta_S[active_adapter]
+            # delta_S = self.delta_S[active_adapter]
             dropout = self.delta_dropout[active_adapter]
             scaling = self.scaling[active_adapter]
 
@@ -80,14 +80,16 @@ class Linear4bit(torch.nn.Module, DeltaLayer):
             # for precision's concern, using Einstein summation convention
             A = delta_A.weight.T
             B = delta_B.weight.T
-            S = delta_S
+            # S = delta_S
             bias = delta_B.bias
 
             # x @ A @ diag(S) @ B + bias
             if use_bias:
-                output = (x @ A @ torch.diag(S) @ B + bias) * scaling
+                # output = (x @ A @ torch.diag(S) @ B + bias) * scaling
+                output = (x @ A @  B + bias) * scaling
             else:
-                output = x @ A @ torch.diag(S) @ B * scaling
+                # output = x @ A @ torch.diag(S) @ B * scaling
+                output = x @ A @ B * scaling
 
             # this means delta_theta is not empty
             if active_adapter in self.delta_theta.keys():

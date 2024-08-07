@@ -178,7 +178,7 @@ def get_peft_model_state_dict(
             to_return["base_model.vera_B." + adapter_name] = state_dict["base_model.vera_B." + adapter_name]
 
     elif config.peft_type == PeftType.DELTA:
-        to_return = {k: state_dict[k] for k in state_dict if ("delta_A" in k or "delta_B" in k or "delta_S" in k)}
+        to_return = {k: state_dict[k] for k in state_dict if ("delta_A" in k or "delta_B" in k)}
 
     else:
         raise ValueError(f"Unknown PEFT type passed: {config.peft_type}")

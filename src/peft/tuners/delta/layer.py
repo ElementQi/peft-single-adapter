@@ -29,7 +29,7 @@ class DeltaLayer(BaseTunerLayer):
         # For Low Rank Projection
         self.delta_A = nn.ModuleDict({})
         self.delta_B = nn.ModuleDict({})
-        self.delta_S = nn.ParameterDict({})
+        # self.delta_S = nn.ParameterDict({})
         # # for sign info and gamma -> Lion algorithm
         # # self.sign_info = nn.ParameterDict({})
         # self.packed_sign_matrix = nn.ParameterDict({})
@@ -126,14 +126,14 @@ class DeltaLayer(BaseTunerLayer):
         if use_bias is False:
             self.delta_A[adapter_name] = nn.Linear(self.in_features, r, bias=False, dtype=torch.bfloat16)
             self.delta_B[adapter_name] = nn.Linear(r, self.out_features, bias=False, dtype=torch.bfloat16)
-            self.delta_S[adapter_name] = nn.Parameter(torch.zeros(r, dtype=torch.bfloat16, requires_grad=False))
+            # self.delta_S[adapter_name] = nn.Parameter(torch.zeros(r, dtype=torch.bfloat16, requires_grad=False))
 
             nn.init.zeros_(self.delta_A[adapter_name].weight)
             nn.init.zeros_(self.delta_B[adapter_name].weight)
         else:
             self.delta_A[adapter_name] = nn.Linear(self.in_features, r, bias=True, dtype=torch.bfloat16)
             self.delta_B[adapter_name] = nn.Linear(r, self.out_features, bias=False, dtype=torch.bfloat16)
-            self.delta_S[adapter_name] = nn.Parameter(torch.zeros(r, dtype=torch.bfloat16, requires_grad=False))
+            # self.delta_S[adapter_name] = nn.Parameter(torch.zeros(r, dtype=torch.bfloat16, requires_grad=False))
             nn.init.zeros_(self.delta_A[adapter_name].weight)
             nn.init.zeros_(self.delta_A[adapter_name].bias)
         self._move_adapter_to_device_of_base_layer(adapter_name)
@@ -171,18 +171,19 @@ class DeltaLayer(BaseTunerLayer):
         # since `fan_in_fan_out` is `False`, we have no need to do transpose
         A_old = self.delta_A[adapter_name].weight.T
         B_old = self.delta_B[adapter_name].weight.T
-        S_old = self.delta_S[adapter_name]
-        old_output = (A_old @ torch.diag(S_old) @ B_old).T
+        # S_old = self.delta_S[adapter_name]
+        # old_output = (A_old @ torch.diag(S_old) @ B_old).T
+        old_output = (A_old @ B_old).T
 
         new_output = old_output + self.delta_theta[adapter_name].weight.data
 
-        del A_old, B_old, S_old, self.delta_theta[adapter_name]
+        del A_old, B_old, self.delta_theta[adapter_name]
         torch.cuda.empty_cache()
 
         import gc
         gc.collect()
 
-        A, B, S, loss = low_rank_proj(new_output, r)
+        A, B, loss = low_rank_proj(new_output, r)
 
         # use_bias = False if self.bias == "none" else True
         # use_bias = True if self.base_layer.bias is not None else False
@@ -204,7 +205,7 @@ class DeltaLayer(BaseTunerLayer):
 
         self.delta_A[adapter_name].weight.data.copy_(A)
         self.delta_B[adapter_name].weight.data.copy_(B)
-        self.delta_S[adapter_name].data.copy_(S)
+        # self.delta_S[adapter_name].data.copy_(S)
 
         # if self.delta_B[adapter_name].bias is not None and bias_data is not None:
         #     self.delta_B[adapter_name].bias.data = bias_data

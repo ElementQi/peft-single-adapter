@@ -196,24 +196,32 @@ def low_rank_proj(delta_theta, r):
     U, S, Vh = torch.linalg.svd(delta_theta, full_matrices=True, driver=None)
 
     # choose first r singular value
-    U = U[:, :r]
-    S = S[:r]
-    Vh = Vh[:r, :]
+    # U = U[:, :r]
+    # S = S[:r]
+    # Vh = Vh[:r, :]
+
+    # refer to loftq_utils.py:
+    # L = U @ (torch.sqrt(torch.diag(S)[:, 0:reduced_rank]))
+    # R = torch.sqrt(torch.diag(S)[0:reduced_rank, :]) @ Vh
+    U = U @ (torch.sqrt(torch.diag(S)[:, :r]))
+    Vh = torch.sqrt(torch.diag(S)[:r, :]) @ Vh
 
     # U, Vh's shape
     # (torch.Size([2816, 32]), torch.Size([32, 1024]))
 
-    reconstructed = U @ torch.diag(S) @ Vh
+    # reconstructed = U @ torch.diag(S) @ Vh
+    reconstructed = U @ Vh
     loss = F.mse_loss(delta_theta, reconstructed)
 
     U = U.to(original_dtype)
     Vh = Vh.to(original_dtype)
-    S = S.to(original_dtype)
+    # S = S.to(original_dtype)
 
     # to calculate: delta_theta_tilde = U @ torch.diag(S) @ Vh
     # = B @ torch.diag(S) @ A
     # A, B, S, loss
-    return Vh, U, S, loss
+    # return Vh, U, S, loss
+    return Vh, U, loss
 
 
 def simplified_sign(tensor):
