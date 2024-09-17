@@ -27,8 +27,8 @@ class DeltaLayer(BaseTunerLayer):
         self.delta_dropout = nn.ModuleDict({})
         self.delta_theta = nn.ModuleDict({})
         # For Low Rank Projection
-        self.delta_A = nn.ModuleDict({})
-        self.delta_B = nn.ModuleDict({})
+        self.lora_A = nn.ModuleDict({})
+        self.lora_B = nn.ModuleDict({})
         # self.delta_S = nn.ParameterDict({})
         # # for sign info and gamma -> Lion algorithm
         # # self.sign_info = nn.ParameterDict({})
@@ -93,6 +93,8 @@ class DeltaLayer(BaseTunerLayer):
         else:
             delta_dropout_layer = nn.Identity()
 
+        self.lora_A[adapter_name] = nn.Linear(self.in_features, r, bias=False)
+        self.lora_B[adapter_name] = nn.Linear(r, self.out_features, bias=False)
         self.delta_dropout.update(nn.ModuleDict({adapter_name: delta_dropout_layer}))
         # Actual trainable parameters
         # we should modify this
@@ -104,13 +106,14 @@ class DeltaLayer(BaseTunerLayer):
         # self.spawn_delta_matrix(adapter_name)
 
         # low rank projection, will init all A, B, S
-        self.spawn_low_rank_componets(adapter_name)
+        # self.spawn_low_rank_componets(adapter_name)
 
         if use_rslora:
             self.scaling[adapter_name] = delta_alpha / math.sqrt(r)
         else:
             self.scaling[adapter_name] = delta_alpha / r
 
+        # ??
         if init_lora_weights:
             self.reset_lora_parameters(adapter_name, init_lora_weights)
         # call this before dora_init
@@ -124,18 +127,18 @@ class DeltaLayer(BaseTunerLayer):
         r = self.r[adapter_name]
 
         if use_bias is False:
-            self.delta_A[adapter_name] = nn.Linear(self.in_features, r, bias=False, dtype=torch.bfloat16)
-            self.delta_B[adapter_name] = nn.Linear(r, self.out_features, bias=False, dtype=torch.bfloat16)
+            self.lora_A[adapter_name] = nn.Linear(self.in_features, r, bias=False, dtype=torch.bfloat16)
+            self.lora_B[adapter_name] = nn.Linear(r, self.out_features, bias=False, dtype=torch.bfloat16)
             # self.delta_S[adapter_name] = nn.Parameter(torch.zeros(r, dtype=torch.bfloat16, requires_grad=False))
 
-            nn.init.zeros_(self.delta_A[adapter_name].weight)
-            nn.init.zeros_(self.delta_B[adapter_name].weight)
+            nn.init.zeros_(self.lora_A[adapter_name].weight)
+            nn.init.zeros_(self.lora_B[adapter_name].weight)
         else:
-            self.delta_A[adapter_name] = nn.Linear(self.in_features, r, bias=True, dtype=torch.bfloat16)
-            self.delta_B[adapter_name] = nn.Linear(r, self.out_features, bias=False, dtype=torch.bfloat16)
+            self.lora_A[adapter_name] = nn.Linear(self.in_features, r, bias=True, dtype=torch.bfloat16)
+            self.lora_B[adapter_name] = nn.Linear(r, self.out_features, bias=False, dtype=torch.bfloat16)
             # self.delta_S[adapter_name] = nn.Parameter(torch.zeros(r, dtype=torch.bfloat16, requires_grad=False))
-            nn.init.zeros_(self.delta_A[adapter_name].weight)
-            nn.init.zeros_(self.delta_A[adapter_name].bias)
+            nn.init.zeros_(self.lora_A[adapter_name].weight)
+            nn.init.zeros_(self.lora_A[adapter_name].bias)
         self._move_adapter_to_device_of_base_layer(adapter_name)
 
     def spawn_delta_matrix(self, adapter_name):
@@ -169,8 +172,8 @@ class DeltaLayer(BaseTunerLayer):
         # there is a transpose
         # A, B, loss = low_rank_proj(self.delta_theta[adapter_name].weight.data.T, r)
         # since `fan_in_fan_out` is `False`, we have no need to do transpose
-        A_old = self.delta_A[adapter_name].weight.T
-        B_old = self.delta_B[adapter_name].weight.T
+        A_old = self.lora_A[adapter_name].weight.T
+        B_old = self.lora_B[adapter_name].weight.T
         # S_old = self.delta_S[adapter_name]
         # old_output = (A_old @ torch.diag(S_old) @ B_old).T
         old_output = (A_old @ B_old).T
@@ -203,8 +206,8 @@ class DeltaLayer(BaseTunerLayer):
         # self.delta_B[adapter_name].weight.data = B
         # self.delta_S[adapter_name].data = S
 
-        self.delta_A[adapter_name].weight.data.copy_(A)
-        self.delta_B[adapter_name].weight.data.copy_(B)
+        self.lora_A[adapter_name].weight.data.copy_(A)
+        self.lora_B[adapter_name].weight.data.copy_(B)
         # self.delta_S[adapter_name].data.copy_(S)
 
         # if self.delta_B[adapter_name].bias is not None and bias_data is not None:
@@ -239,15 +242,15 @@ class DeltaLayer(BaseTunerLayer):
         self.delta_theta = nn.ModuleDict({})
 
         # create A, B matrix on model
-        self.delta_A[adapter_name] = nn.Linear(self.in_features, r, bias=False)
-        self.delta_B[adapter_name] = nn.Linear(r, self.out_features, bias=use_bias)
+        self.lora_A[adapter_name] = nn.Linear(self.in_features, r, bias=False)
+        self.lora_B[adapter_name] = nn.Linear(r, self.out_features, bias=use_bias)
 
-        self.delta_A[adapter_name].weight.data = A
-        self.delta_B[adapter_name].weight.data = B
+        self.lora_A[adapter_name].weight.data = A
+        self.lora_B[adapter_name].weight.data = B
         self.delta_S[adapter_name] = nn.Parameter(S)
 
-        if self.delta_B[adapter_name].bias is not None and bias_data is not None:
-            self.delta_B[adapter_name].bias.data = bias_data
+        if self.lora_B[adapter_name].bias is not None and bias_data is not None:
+            self.lora_B[adapter_name].bias.data = bias_data
 
         self._move_adapter_to_device_of_base_layer(adapter_name)
 

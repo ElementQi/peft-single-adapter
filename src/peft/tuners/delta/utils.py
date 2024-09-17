@@ -19,7 +19,7 @@ def init_layers_with_active_block(module, active_block, prefix="", root_module=N
 
     # If the module has no children, it's an innermost layer
     if not has_children:
-        inner_module = prefix.split(".")[-1]  # like delta_theta, delta_A
+        inner_module = prefix.split(".")[-1]  # like delta_theta, lora_A
         before_module = ".".join(prefix.split(".")[:-1])
         if inner_module == "delta_theta":
             basic_index = 3
@@ -62,10 +62,10 @@ def del_and_create_with_active_block(module, active_block, prefix="", root_modul
 
     # If the module has no children, it's an innermost layer
     if not has_children:
-        inner_module = prefix.split(".")[-1]  # like delta_theta, delta_A
+        inner_module = prefix.split(".")[-1]  # like delta_theta, lora_A
         before_module = ".".join(prefix.split(".")[:-1])
         # A or B, just choose one
-        if inner_module == "delta_A":
+        if inner_module == "lora_A":
             basic_index = 3
             if "base_model" in prefix:
                 basic_index += 1
@@ -110,7 +110,7 @@ def del_delta_update_AB_with_active_block(module, active_block, prefix="", root_
 
     # If the module has no children, it's an innermost layer
     if not has_children:
-        inner_module = prefix.split(".")[-1]  # like delta_theta, delta_A
+        inner_module = prefix.split(".")[-1]  # like delta_theta, lora_A
         # but there could be default as the innerest module.
         # breakpoint()
         before_inner_module = prefix.split(".")[-2]
@@ -163,7 +163,7 @@ def del_delta_create_lion_like(module, active_block, prefix="", root_module=None
 
     # If the module has no children, it's an innermost layer
     if not has_children:
-        inner_module = prefix.split(".")[-1]  # like delta_theta, delta_A
+        inner_module = prefix.split(".")[-1]  # like delta_theta, lora_A
         before_module = ".".join(prefix.split(".")[:-1])
         # if inner_module == "delta_theta":
         if inner_module == "sign_gamma":

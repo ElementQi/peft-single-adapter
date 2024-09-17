@@ -73,7 +73,7 @@ def get_peft_model_state_dict(
         state_dict = model.state_dict()
 
     # TUNER SPECIFIC CODE
-    if config.peft_type in (PeftType.LORA, PeftType.ADALORA):
+    if config.peft_type in [PeftType.LORA, PeftType.ADALORA, PeftType.DELTA]:
         # to_return = lora_state_dict(model, bias=model.peft_config.bias)
         # adapted from `https://github.com/microsoft/LoRA/blob/main/loralib/utils.py`
         # to be used directly with the state dict which is necessary when using DeepSpeed or FSDP
@@ -177,8 +177,8 @@ def get_peft_model_state_dict(
             to_return["base_model.vera_A." + adapter_name] = state_dict["base_model.vera_A." + adapter_name]
             to_return["base_model.vera_B." + adapter_name] = state_dict["base_model.vera_B." + adapter_name]
 
-    elif config.peft_type == PeftType.DELTA:
-        to_return = {k: state_dict[k] for k in state_dict if ("delta_A" in k or "delta_B" in k)}
+    # elif config.peft_type == PeftType.DELTA:
+    #     to_return = {k: state_dict[k] for k in state_dict if ("delta_A" in k or "delta_B" in k)}
 
     else:
         raise ValueError(f"Unknown PEFT type passed: {config.peft_type}")
@@ -331,7 +331,7 @@ def set_peft_model_state_dict(
             PeftType.BOFT: "boft_",
             PeftType.LN_TUNING: "ln_tuning_",
             PeftType.VERA: "vera_lambda_",
-            PeftType.DELTA: "delta_",
+            PeftType.DELTA: "lora_",
         }[config.peft_type]
         for k, v in state_dict.items():
             if parameter_prefix in k:
@@ -366,7 +366,7 @@ def set_peft_model_state_dict(
                     " PRNG initialisation to restore these projections using `config.projection_prng_key`, which may"
                     " not be accurate on all system configurations."
                 )
-        elif config.peft_type == PeftType.LORA:
+        elif config.peft_type == PeftType.LORA or config.peft_type == PeftType.DELTA:
             # Here we take care of a refactor of DoRA which changed lora_magnitude_vector from a ParameterDict to a
             # ModuleDict with a DoraLayer instance. The old parameter is now the "weight" attribute of that layer.
             old_dora_suffix = f"lora_magnitude_vector.{adapter_name}"
@@ -387,10 +387,10 @@ def set_peft_model_state_dict(
         model, peft_model_state_dict, ignore_mismatched_sizes=ignore_mismatched_sizes
     )
 
-    if config.peft_type == PeftType.DELTA:
-        load_result = model.load_state_dict(peft_model_state_dict, strict=False, assign=True)
-    else:
-        load_result = model.load_state_dict(peft_model_state_dict, strict=False)
+    # if config.peft_type == PeftType.DELTA:
+    #     load_result = model.load_state_dict(peft_model_state_dict, strict=False, assign=True)
+    # else:
+    load_result = model.load_state_dict(peft_model_state_dict, strict=False)
 
     if config.is_prompt_learning:
         model.prompt_encoder[adapter_name].embedding.load_state_dict(

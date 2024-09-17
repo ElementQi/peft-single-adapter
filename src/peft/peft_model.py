@@ -478,6 +478,10 @@ class PeftModel(PushToHubMixin, torch.nn.Module):
             model_id, adapter_name, is_trainable=is_trainable, autocast_adapter_dtype=autocast_adapter_dtype, **kwargs
         )
 
+        # here we need to mount adapters to the corresponding devices
+        # adapter_layer[adapter_name] = adapter_layer[adapter_name].to(device)
+        # self.to(torch_device)
+
         return model
 
     def _setup_prompt_encoder(self, adapter_name: str):
@@ -1097,6 +1101,10 @@ class PeftModel(PushToHubMixin, torch.nn.Module):
         # Set model in evaluation mode to deactivate Dropout modules by default
         if not is_trainable:
             self.eval()
+
+        # make adapters to cuda rather than cpu
+        self.to(torch_device)
+
         return load_result
 
     def set_adapter(self, adapter_name: str) -> None:

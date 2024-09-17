@@ -57,10 +57,10 @@ class Linear4bit(torch.nn.Module, DeltaLayer):
         result = result.clone()
 
         for active_adapter in self.active_adapters:
-            if active_adapter not in self.delta_A.keys():
+            if active_adapter not in self.lora_A.keys():
                 continue
-            delta_A = self.delta_A[active_adapter]
-            delta_B = self.delta_B[active_adapter]
+            lora_A = self.lora_A[active_adapter]
+            lora_B = self.lora_B[active_adapter]
             # delta_S = self.delta_S[active_adapter]
             dropout = self.delta_dropout[active_adapter]
             scaling = self.scaling[active_adapter]
@@ -68,9 +68,9 @@ class Linear4bit(torch.nn.Module, DeltaLayer):
             requires_conversion = not torch.is_autocast_enabled()
             if requires_conversion:
                 expected_dtype = result.dtype
-                x = x.to(delta_A.weight.dtype)
+                x = x.to(lora_A.weight.dtype)
 
-            use_bias = True if delta_B.bias is not None else False
+            use_bias = True if lora_B.bias is not None else False
 
             # delta_tilde = B @ torch.diag(S) @ A
             # output = x @ delta_tilde.weight.T * scaling
@@ -78,10 +78,10 @@ class Linear4bit(torch.nn.Module, DeltaLayer):
             # (torch.Size([2816, 32]), torch.Size([32, 1024]))
 
             # for precision's concern, using Einstein summation convention
-            A = delta_A.weight.T
-            B = delta_B.weight.T
+            A = lora_A.weight.T
+            B = lora_B.weight.T
             # S = delta_S
-            bias = delta_B.bias
+            bias = lora_B.bias
 
             # x @ A @ diag(S) @ B + bias
             if use_bias:
