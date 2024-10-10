@@ -97,8 +97,8 @@ class DeltaLayer(BaseTunerLayer):
         # Actual trainable parameters
         # we should modify this
         # self.bias should also be concerned
-        if init_lora_weights:
-            self.delta_theta[adapter_name] = nn.Linear(self.in_features, self.out_features, bias=True)
+        # if init_lora_weights:
+        #     self.delta_theta[adapter_name] = nn.Linear(self.in_features, self.out_features, bias=True)
 
         # delta only, will init all delta weights
         # self.spawn_delta_matrix(adapter_name)
@@ -111,8 +111,8 @@ class DeltaLayer(BaseTunerLayer):
         else:
             self.scaling[adapter_name] = delta_alpha / r
 
-        if init_lora_weights:
-            self.reset_lora_parameters(adapter_name, init_lora_weights)
+        # if init_lora_weights:
+        #     self.reset_lora_parameters(adapter_name, init_lora_weights)
         # call this before dora_init
         self._move_adapter_to_device_of_base_layer(adapter_name)
 
@@ -140,15 +140,24 @@ class DeltaLayer(BaseTunerLayer):
 
     def spawn_delta_matrix(self, adapter_name):
         use_bias = True if self.base_layer.bias is not None else False
+        weight = getattr(self.get_base_layer(), "weight", None)
+        if weight is not None:
+            device = weight.device
 
         if use_bias is False:
-            self.delta_theta[adapter_name] = nn.Linear(self.in_features, self.out_features, bias=False, dtype=torch.bfloat16)
+            # self.delta_theta[adapter_name] = nn.Linear(self.in_features, self.out_features, bias=False, dtype=torch.bfloat16)
+            self.delta_theta[adapter_name] = nn.Linear(self.in_features, self.out_features, bias=False).to(device, dtype=torch.float32)
             nn.init.zeros_(self.delta_theta[adapter_name].weight)
         else:
-            self.delta_theta[adapter_name] = nn.Linear(self.in_features, self.out_features, bias=True, dtype=torch.bfloat16)
+            # self.delta_theta[adapter_name] = nn.Linear(self.in_features, self.out_features, bias=True, dtype=torch.bfloat16)
+            self.delta_theta[adapter_name] = nn.Linear(self.in_features, self.out_features, bias=True).to(device, dtype=torch.float32)
             nn.init.zeros_(self.delta_theta[adapter_name].weight)
             nn.init.zeros_(self.delta_theta[adapter_name].bias)
-        self._move_adapter_to_device_of_base_layer(adapter_name)
+        # self._move_adapter_to_device_of_base_layer(adapter_name)
+
+
+
+        # self._move_adapter_to_device_of_base_layer(adapter_name)
 
     def spawn_addon_delta(self, adapter_name):
         use_bias = True if self.base_layer.bias is not None else False
